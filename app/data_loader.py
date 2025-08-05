@@ -82,9 +82,10 @@ def read_fixtures_for_season(team,season):
     season: int, year of the season start
     Returns data for the season for the specified team with some engineered features
     """
+    print(f"processing for {team}, {season}")
     fixtures = get_team_fixtures(team,season)
     fixtures['winner'] = np.where(fixtures.teams_home_winner == True,fixtures.teams_home_name,
-                                   np.where(fixtures.teams_away_name == True,fixtures.teams_away_name,'Draw'))
+                                   np.where(fixtures.teams_away_winner == True,fixtures.teams_away_name,'Draw'))
     home_fixtures = list(fixtures[fixtures.teams_home_name == team]['fixture_id'])
     away_fixtures = list(fixtures[fixtures.teams_away_name == team]['fixture_id'])
 
@@ -104,6 +105,7 @@ def read_fixtures_for_season(team,season):
             fixture_dat_expanded['team_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] 
             fixture_dat_expanded['team_non_penalty_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_away'].fillna(0).values[0]
             fixture_dat_expanded['team_goals_conceded_half'] = fixtures[(fixtures.fixture_id == fixture)]['score_halftime_away'].values[0]             
+            fixture_dat_expanded['opponent'] = fixtures[(fixtures.fixture_id == fixture)]['teams_away_name'].values[0]             
             
         else:
             #process for away
@@ -115,21 +117,26 @@ def read_fixtures_for_season(team,season):
             fixture_dat_expanded['team_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] 
             fixture_dat_expanded['team_non_penalty_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_home'].fillna(0).values[0]
             fixture_dat_expanded['team_goals_conceded_half'] = fixtures[(fixtures.fixture_id == fixture)]['score_halftime_home'].values[0] 
-            
+            fixture_dat_expanded['opponent'] = fixtures[(fixtures.fixture_id == fixture)]['teams_home_name'].values[0]   
+
+        # adding team winner
+        fixture_dat_expanded['team_winner'] = str(fixtures[(fixtures.fixture_id == fixture)]['winner'].values[0])
 
         fixtures_dat = pd.concat([fixtures_dat,fixture_dat_expanded],axis = 0)
-        team_winner = str(fixtures[(fixtures.fixture_id == fixture)]['winner'].values[0])
-        fixtures_dat['team_winner'] = team_winner
         fixtures_dat['team'] = team
+    
+    fixtures_dat = lower_columns(fixtures_dat)
 
     # Outcome
     fixtures_dat['outcome'] = np.where(fixtures_dat.team == fixtures_dat.team_winner,'win',np.where(fixtures_dat.team_winner == 'Draw','draw','loss'))
-    
-    # feature engineering
-    fixtures_dat['dribble_success_rate'] = (fixtures_dat.dribbles_success/fixtures_dat.dribbles_attempts) * 100
-    fixtures_dat['target_shot_cr'] = (fixtures_dat.goals_total/fixtures_dat.shots_on) * 100
 
-    fixtures_dat = lower_columns(fixtures_dat)
+    # feature engineering
+    fixtures_dat['dribble_success_rate'] = (fixtures_dat.dribbles_success.astype("float64")/fixtures_dat.dribbles_attempts.astype("float64")) * 100
+    fixtures_dat['target_shot_conversion_perc'] = (fixtures_dat.goals_total.astype("float64")/fixtures_dat.shots_on.astype("float64")) * 100
+    fixtures_dat['duels_won_perc'] = (fixtures_dat.duels_won.astype("float64")/fixtures_dat.duels_total.astype("float64")) * 100
+    fixtures_dat['pass_accuracy_perc'] = (fixtures_dat.passes_accuracy.astype("float64")/ fixtures_dat.passes_total.astype("float64")) * 100
+
+    fixtures_dat.to_parquet(home_dir+f"/data/Fixtures/{team.replace(' ','_')}_{str(season)}.parquet")
 
     return fixtures_dat
 
