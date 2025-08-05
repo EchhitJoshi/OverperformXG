@@ -19,7 +19,7 @@ from data_loader import *
 #Themes and options
 px.defaults.template = 'plotly_dark'
 pd.options.display.max_columns = 200
-sns.set_style("darkgrid")
+sns.set_style("ticks")
 plt.style.use("dark_background")
 
 
