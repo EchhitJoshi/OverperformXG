@@ -142,10 +142,17 @@ def read_fixtures_for_season(team,season):
 
 
 
-def fixture_level_stats(player_fixture_dat):
-    dat = player_fixture_dat.copy()
-    
-        
+def add_missing_fixture_features(dat,team,season,missing_features:list):
+    '''
+    team: team to add missing fixture features 
+    season: season in question
+    missing_features: features to add from fixtures data
+    '''
+    all_fixtures = get_team_fixtures(team,season)
+    return pd.merge(dat,all_fixtures[['fixture_id'] + missing_features], on = 'fixture_id',how = 'left')
+
     
 
+
+        
     
