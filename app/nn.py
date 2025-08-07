@@ -69,7 +69,8 @@ class LogisticNNModelComplex(nn.Module):
             nn.BatchNorm1d(32),
             nn.ReLU(),
 
-            nn.Linear(32,1)
+            nn.Linear(32,1),
+            
         )
 
     
