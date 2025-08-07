@@ -94,7 +94,7 @@ def read_fixtures_for_season(team,season):
     for fixture in home_fixtures + away_fixtures:
         player_stat_url = "https://v3.football.api-sports.io/fixtures/players?fixture={}".format(fixture)
         fixture_dat = requests.get(player_stat_url,headers=headers_api_sport)
-        time.sleep(15)
+        time.sleep(2)
         if fixture in home_fixtures:
             #process for home
             fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
@@ -142,7 +142,8 @@ def read_fixtures_for_season(team,season):
 
 
 
-
+def fixture_level_stats(player_fixture_dat):
+    dat = player_fixture_dat.copy()
     
         
     
