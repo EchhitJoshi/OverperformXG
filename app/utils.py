@@ -258,3 +258,11 @@ def refresh_team_league_map(leagues_subset):
 def find_team(team_name):
     team_league_map = pd.read_parquet(home_dir + "/data/Teams/team_league.parquet")
     return team_league_map[team_league_map.team_name.str.lower().str.contains(team_name.lower())]
+
+
+
+def find_player(data,player_id = None,player_name = None):
+    if player_id:
+        return data[data.player_id == player_id][['player_id','player_name','team']].drop_duplicates()
+    else:
+        return data[data.player_name.str.contains(player_name)][['player_id','player_name','team']].drop_duplicates()
