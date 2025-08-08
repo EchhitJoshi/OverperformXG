@@ -83,9 +83,11 @@ def read_fixtures_for_season(team,season):
     Returns data for the season for the specified team with some engineered features
     """
     print(f"processing for {team}, {season}")
-    fixtures = get_team_fixtures(team,season)
+    fixtures = get_team_fixtures(team,season)    
     fixtures['winner'] = np.where(fixtures.teams_home_winner == True,fixtures.teams_home_name,
                                    np.where(fixtures.teams_away_winner == True,fixtures.teams_away_name,'Draw'))
+    
+    fixtures.to_parquet(home_dir + f"/data/All_Fixtures/{team}_{season}.parquet")
     home_fixtures = list(fixtures[fixtures.teams_home_name == team]['fixture_id'])
     away_fixtures = list(fixtures[fixtures.teams_away_name == team]['fixture_id'])
 
@@ -149,6 +151,7 @@ def add_missing_fixture_features(dat,team,season,missing_features:list):
     missing_features: features to add from fixtures data
     '''
     all_fixtures = get_team_fixtures(team,season)
+    all_fixtures.to_parquet(home_dir + f"/data/All_Fixtures/{team}_{season}.parquet")
     return pd.merge(dat,all_fixtures[['fixture_id'] + missing_features], on = 'fixture_id',how = 'left')
 
     
