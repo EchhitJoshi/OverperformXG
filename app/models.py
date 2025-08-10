@@ -12,6 +12,7 @@ import glob
 import yaml
 import joblib
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor,as_completed
 
 from visualizations import *
 from validations import discrete_evaluations, check_feature_importance, tune_prob_threshold
@@ -23,6 +24,7 @@ from sklearn.preprocessing import OrdinalEncoder
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.cluster import KMeans
 
 
 from imblearn.pipeline import Pipeline as ImbPipeline
@@ -53,7 +55,7 @@ if os.uname().machine.lower() == "arm64":
 with open("config.yaml","r") as file:
     config = yaml.safe_load(file)
 
-home_path = config['LOCAL_HOME_PATH']
+home_dir = config['HOME_DIRECTORY']
 
 
 def daywise_expected_total_sales_model(dat, date_col,target_col:str,sample:bool = True):
@@ -102,7 +104,7 @@ def daywise_expected_total_sales_model(dat, date_col,target_col:str,sample:bool 
         #sample
         if sample:
             trace = pm.sample(draws = 1000, tune = 300,chains = 4,return_inferencedata = True)
-            az.to_netcdf(trace, home_path + f"/models/sales_model_trace_{datetime.now().strftime('%Y_%m_%d_%H_%M')}.nc")
+            az.to_netcdf(trace, home_dir + f"/models/sales_model_trace_{datetime.now().strftime('%Y_%m_%d_%H_%M')}.nc")
             return model, trace, coords
             
         else:
@@ -116,7 +118,7 @@ def plot_trace(trace):
     plt.show()
 
 
-def load_latest_model(directory = home_path + '/models', pattern = '*'):
+def load_latest_model(directory = home_dir + '/models', pattern = '*'):
     files = glob.glob(os.path.join(directory,pattern))
     print("Reading from ",files)
     if not files:
@@ -126,7 +128,7 @@ def load_latest_model(directory = home_path + '/models', pattern = '*'):
     trace = az.from_netcdf(latest_file)
     return trace
 
-def load_last_model(filepath = home_path + '/models/'):
+def load_last_model(filepath = home_dir + '/models/'):
     models = os.listdir(filepath)
     models.sort(reverse = True)
     trace = az.from_netcdf(filepath + models[0])
@@ -338,14 +340,14 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
     train_pred = best_model.predict(train_X)
     train_pred_proba = best_model.predict_proba(train_X)[:,1]
     print("Training Metrics: \n")
-    discrete_evaluations(train_y,train_pred,train_pred_proba,'train',output_path)
+    discrete_evaluations(train_y,train_pred,train_pred_proba,'train',classification_type="binomial",model_path=output_path)
 
     # Test Metrics
     pred = best_model.predict(test_X)
     pred_proba = best_model.predict_proba(test_X)[:,1]
     print(pred_proba)
 
-    discrete_evaluations(test_y,pred,pred_proba,'test',output_path)
+    discrete_evaluations(test_y,pred,pred_proba,'test',classification_type="binomial",model_path= output_path)
 
     thres_new = tune_prob_threshold(test_y,pred_proba)
     pred_new = np.where(pred_proba > thres_new['tpr_fpr'] - 0.03,1,0) # Less strict 
@@ -355,7 +357,7 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
     pd.DataFrame(thres_df).to_csv(output_path+"/thresholds.csv",index = False)
 
     print("\n Evaluations after probability threshold tuning: ")
-    discrete_evaluations(test_y,pred_new,pred_proba,'test_parameter_tuned',output_path)
+    discrete_evaluations(test_y,pred_new,pred_proba,'test_parameter_tuned',classification_type="binomial",model_path=output_path)
 
     dat_dict.to_csv(output_path+'/dat_dict.csv')
     joblib.dump(best_model, output_path+ '/' + algorithm +'.pkl')
@@ -479,4 +481,65 @@ def predict_final(model_path, test):
 
 def outcome_prediction():
     pass
+
+
+def check_elbow(n_clusters,dat):
+    km = KMeans(n_clusters,random_state=33)
+    km.fit(dat)
+    return km
+
+
+def fit_optimal_kmeans(dat,target):
+    '''
+    dat: data with target col
+    target: column name
+    '''
+
+    k = range(1,25)
+
+    with ProcessPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(check_elbow,i,dat[[target]]): i for i in k}
+
+        results = {}
+        for future in futures:
+            k_val = futures[future]
+            kmeans_val = future.result()
+            results[k_val] = kmeans_val.inertia_        
+
+    ks = sorted(results.keys())
+    inertias = [results[k] for k in ks]
+    
+    first_deriv = np.diff(inertias)/np.diff(ks)
+    second_deriv = np.diff(first_deriv)
+
+    elbow_idx = np.argmin(np.abs(second_deriv)) + 1
+    elbow_k = ks[elbow_idx]
+
+    print(f"lowest inertia value change: {elbow_k}")
+
+
+    plt.plot(ks, inertias, marker='o')
+    plt.axhline(y = inertias[elbow_k - 1],
+                color = 'r',
+                linestyle = '--',
+                label = f'Elbow at k = {elbow_k}')
+    plt.xlabel('Number of clusters k')
+    plt.ylabel('Inertia (WCSS)')
+    plt.title('Elbow Curve')
+    plt.show()
+
+
+    final_kmeans = KMeans(elbow_k,random_state=33)
+    dat[f"cluster_{target}"] = final_kmeans.fit_predict(dat[[target]])
+
+    return dat
+
+    
+
+
+
+
+
+
+
 

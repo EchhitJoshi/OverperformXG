@@ -60,6 +60,7 @@ def discrete_evaluations(actual,pred,pred_proba=None,type = "test",classificatio
         print(f"ROC AUC Score: {roc_score}")
 
     if not os.path.exists(model_path + "/metrics"):
+        print("creating directory in ", model_path + "/metrics")
         os.mkdir(model_path + "/metrics")
     
     # Model results
