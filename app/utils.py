@@ -253,6 +253,7 @@ def refresh_team_league_map(leagues_subset):
                 team_league_map = pd.concat([team_league_map,team_season],axis = 0)
             except:
                 print(f"Error for League: {league}, Season: {season}, Please check data")
+    team_league_map.to_parquet(home_dir + "/data/Teams/team_league.parquet")
 
 
 def find_team(team_name):

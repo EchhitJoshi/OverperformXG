@@ -70,11 +70,19 @@ def get_team_fixtures(team, season, league = None):
     fixtures_dat = lower_columns(fixtures_dat)
     team_fixtures = fixtures_dat[(fixtures_dat.teams_home_name.str.lower().str.contains(team.lower()) ) | (fixtures_dat.teams_away_name.str.lower().str.contains(team.lower()))]
     
+    team_fixtures['winner'] = np.where(team_fixtures.teams_home_winner == True,team_fixtures.teams_home_name,
+                                   np.where(team_fixtures.teams_away_winner == True,team_fixtures.teams_away_name,'Draw'))
+
+    team_fixtures.to_parquet(home_dir + f"/data/All_Fixtures/{team}_{season}.parquet")
     #team_fixtures[['fixture_id','teams_home_name','teams_away_name']].to_parquet(home_dir + f"/data/Fixtures/{team}_{season}_{league}.parquet")
     return team_fixtures#[['fixture_id','teams_home_name','teams_away_name']]
     
     
-    
+
+
+
+
+
         
 def read_fixtures_for_season(team,season):
     """
@@ -83,11 +91,10 @@ def read_fixtures_for_season(team,season):
     Returns data for the season for the specified team with some engineered features
     """
     print(f"processing for {team}, {season}")
-    fixtures = get_team_fixtures(team,season)    
-    fixtures['winner'] = np.where(fixtures.teams_home_winner == True,fixtures.teams_home_name,
-                                   np.where(fixtures.teams_away_winner == True,fixtures.teams_away_name,'Draw'))
+    fixtures = get_team_fixtures(team,season)
     
-    fixtures.to_parquet(home_dir + f"/data/All_Fixtures/{team}_{season}.parquet")
+    
+    
     home_fixtures = list(fixtures[fixtures.teams_home_name == team]['fixture_id'])
     away_fixtures = list(fixtures[fixtures.teams_away_name == team]['fixture_id'])
 
@@ -122,10 +129,13 @@ def read_fixtures_for_season(team,season):
             fixture_dat_expanded['opponent'] = fixtures[(fixtures.fixture_id == fixture)]['teams_home_name'].values[0]   
 
         # adding team winner
+        fixture_dat_expanded['fixture_date'] = fixtures[(fixtures.fixture_id == fixture)]['fixture_date'].values[0] 
         fixture_dat_expanded['team_winner'] = str(fixtures[(fixtures.fixture_id == fixture)]['winner'].values[0])
 
         fixtures_dat = pd.concat([fixtures_dat,fixture_dat_expanded],axis = 0)
         fixtures_dat['team'] = team
+        
+        
     
     fixtures_dat = lower_columns(fixtures_dat)
 
@@ -144,15 +154,47 @@ def read_fixtures_for_season(team,season):
 
 
 
-def add_missing_fixture_features(dat,team,season,missing_features:list):
+
+
+
+def read_fixture_stats(dat,team,season,missing_features:list):
     '''
-    team: team to add missing fixture features 
+    team: team to add missing fixture features
     season: season in question
     missing_features: features to add from fixtures data
     '''
-    all_fixtures = get_team_fixtures(team,season)
-    all_fixtures.to_parquet(home_dir + f"/data/All_Fixtures/{team}_{season}.parquet")
-    return pd.merge(dat,all_fixtures[['fixture_id'] + missing_features], on = 'fixture_id',how = 'left')
+    fixtures = get_team_fixtures(team,season)    
+    home_fixtures = list(fixtures[fixtures.teams_home_name == team]['fixture_id'])
+    away_fixtures = list(fixtures[fixtures.teams_away_name == team]['fixture_id'])
+
+    fixtures.to_parquet(home_dir + f"/data/All_Fixtures/{team}_{season}.parquet")
+    
+    fixture_dat = pd.DataFrame()
+    for fixture in home_fixtures + away_fixtures:
+
+        if fixture in home_fixtures:
+            fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            fixture_dat_expanded['fixture_id'] = fixture
+            fixture_dat_expanded['team_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] 
+            fixture_dat_expanded['team_non_penalty_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_home'].fillna(0).values[0]
+            fixture_dat_expanded['team_goals_scored_half'] = fixtures[(fixtures.fixture_id == fixture)]['score_halftime_home'].values[0] 
+            fixture_dat_expanded['team_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] 
+            fixture_dat_expanded['team_non_penalty_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_away'].fillna(0).values[0]
+            fixture_dat_expanded['team_goals_conceded_half'] = fixtures[(fixtures.fixture_id == fixture)]['score_halftime_away'].values[0]             
+            fixture_dat_expanded['opponent'] = fixtures[(fixtures.fixture_id == fixture)]['teams_away_name'].values[0]             
+        else:
+            fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            fixture_dat_expanded['fixture_id'] = fixture
+            fixture_dat_expanded['team_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] 
+            fixture_dat_expanded['team_non_penalty_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_away'].fillna(0).values[0]
+            fixture_dat_expanded['team_goals_scored_half'] = fixtures[(fixtures.fixture_id == fixture)]['score_halftime_away'].values[0] 
+            fixture_dat_expanded['team_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] 
+            fixture_dat_expanded['team_non_penalty_goals_conceded'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_home'].fillna(0).values[0]
+            fixture_dat_expanded['team_goals_conceded_half'] = fixtures[(fixtures.fixture_id == fixture)]['score_halftime_home'].values[0] 
+            fixture_dat_expanded['opponent'] = fixtures[(fixtures.fixture_id == fixture)]['teams_home_name'].values[0]   
+
+
+    return pd.merge(dat,fixture_dat, on = 'fixture_id',how = 'left')
 
     
 
