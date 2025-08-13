@@ -199,5 +199,22 @@ def read_fixture_stats(dat,team,season,missing_features:list):
     
 
 
-        
+
+def combine_fixture_stats(complete_data):
+
+    fixture_df = complete_data.groupby(['fixture_id','team']).agg(avg_rating = ("games_rating","mean"),
+                                                                  avg_games_played_by_player = ("games_number","mean"),
+                                                                  total_shots = ("shots_total","sum"),
+                                                                  total_shots_on_target = ("shots_on","sum"),
+                                                                  total_goals = ("goals_total","sum"),
+                                                                  total_goals_conceded = ("goals_conceded","sum"),
+                                                                  total_goals_assist = ("goals_conceded","sum"),
+                                                                  
+
+
+
+
+                                                                  )
+    
+
     

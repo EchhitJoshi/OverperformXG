@@ -13,6 +13,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import scipy.stats as sc
 import requests
+from pandas.api.types import is_datetime64_any_dtype, is_period_dtype
 
 from data_loader import *
 
@@ -131,6 +132,8 @@ def find_data_types(dat,target_cols):
             dat_type[col] = 'categorical'
         elif dat[col].dtype in ['int64','float64']:
             dat_type[col] = 'numeric'
+        elif is_datetime64_any_dtype(dat[col]) or is_period_dtype(dat[col]):
+            dat_type[col] = 'datetime'
         else:
             dat_type[col] = 'other'
 
@@ -267,3 +270,9 @@ def find_player(data,player_id = None,player_name = None):
         return data[data.player_id == player_id][['player_id','player_name','team']].drop_duplicates()
     else:
         return data[data.player_name.str.contains(player_name)][['player_id','player_name','team']].drop_duplicates()
+    
+
+
+
+
+
