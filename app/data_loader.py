@@ -202,14 +202,57 @@ def read_fixture_stats(dat,team,season,missing_features:list):
 
 def combine_fixture_stats(complete_data):
 
-    fixture_df = complete_data.groupby(['fixture_id','team']).agg(avg_rating = ("games_rating","mean"),
-                                                                  avg_games_played_by_player = ("games_number","mean"),
+    fixture_df = complete_data.groupby(['fixture_id','team']).agg(total_rating = ("games_rating","sum"),
+                                                                  total_games_played_by_player = ("games_number","sum"),
                                                                   total_shots = ("shots_total","sum"),
                                                                   total_shots_on_target = ("shots_on","sum"),
                                                                   total_goals = ("goals_total","sum"),
                                                                   total_goals_conceded = ("goals_conceded","sum"),
-                                                                  total_goals_assist = ("goals_conceded","sum"),
+                                                                  total_goals_assists = ("goals_assists","sum"),
+                                                                  total_goals_saves = ("goals_saves","sum"),
+                                                                  total_passes = ("passes_total","sum"),
+                                                                  total_passes_key = ("passes_key","sum"),
+                                                                  total_tackles = ("tackles_total","sum"),
+                                                                  total_tackles_blocks = ("tackles_blocks","sum"),
+                                                                  total_tackles_interceptions = ("tackles_interceptions","sum"),
+                                                                  total_duels = ("duels_total","sum"),
+                                                                  total_duels_won = ("duels_won","sum"),
+                                                                  total_dribbles_attempts = ("dribbles_attempts","sum"),
+                                                                  total_dribbles_success = ("dribbles_success","sum"),
+                                                                  total_dribbles_past = ("dribbles_past","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
                                                                   
+                                                                  total_fouls_committed = ("fouls_committed","sum"),
+                                                                  total_cards_yellow = ("cards_yellow","sum"),
+                                                                  total_cards_red = ("cards_red","sum"),
+                                                                  total_penalty_won = ("penalty_won","sum"),
+                                                                  total_penalty_commited = ("penalty_commited","sum"),
+                                                                  total_penalty_scored = ("penalty_scored","sum"),
+                                                                  total_penalty_saved = ("penalty_saved","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+
+                                                                  
+
+
+
+
+
+
+                                                                  avg_rating = ("games_rating","mean"),
+                                                                  avg_shots = ("shots_total","mean"),
+                                                                  avg_pass_accuracy = ("passes_accuracy","mean"),
+
+                                                                  #avg_key_passes_per_midfield = ("passes_key_passes",) later
+
+
+
 
 
 
