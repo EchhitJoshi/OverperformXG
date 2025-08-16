@@ -229,14 +229,14 @@ def combine_fixture_stats(complete_data):
                                                                   total_penalty_commited = ("penalty_commited","sum"),
                                                                   total_penalty_scored = ("penalty_scored","sum"),
                                                                   total_penalty_saved = ("penalty_saved","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
-                                                                  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #  total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
+                                                                #   total_fouls_drawn = ("fouls_drawn","sum"),
 
                                                                   
 
@@ -261,3 +261,84 @@ def combine_fixture_stats(complete_data):
     
 
     
+def compare_players(dat,players:list,years:list,transpose:str):
+    
+    final_dat = dat[(dat.player_name.isin(players)) & (dat.year_e.isin(years)) ].groupby(["player_name","year_e"],as_index = False).apply(lambda group: pd.Series({
+    "player_id": group["player_id"].iloc[0],
+    "player_name": group["player_name"].iloc[0],
+    "total_games_played": group["fixture_id"].count(),
+    "total_minutes_played": group["games_minutes"].sum(),
+    "average_rating": group["games_rating"].mean(),
+    "captain_matches": group["games_captain"].sum(),
+    "substitute_appearances": group["games_substitute"].sum(),
+    "total_shots": group["shots_total"].sum(),
+    "shots_on_target": group["shots_on"].sum(),
+    "goals_scored": group["goals_total"].sum(),
+    "assists": group["goals_assists"].sum(),
+    "yellow_cards": group["cards_yellow"].sum(),
+    "red_cards": group["cards_red"].sum(),
+    "fouls_drawn": group["fouls_drawn"].sum(),
+    "fouls_committed": group["fouls_committed"].sum(),
+    "attempted_dribbles": group["dribbles_attempts"].sum(),
+    "successful_dribbles": group["dribbles_success"].sum(),
+    "dribbled_past": group["dribbles_past"].sum(),
+    "dribble_success_rate": group["dribbles_success"].sum() / group["dribbles_attempts"].sum() if group["dribbles_attempts"].sum() > 0 else 0,
+    "total_passes": group["passes_total"].sum(),
+    "key_passes": group["passes_key"].sum(),
+    "average_passes_accurate": group["passes_accurate"].mean(),
+    "average_pass_accuracy": group["pass_accuracy_perc"].mean(),
+    "total_tackles": group["tackles_total"].sum(),
+    "blocks": group["tackles_blocks"].sum(),
+    "interceptions": group["tackles_interceptions"].sum(),
+    "duels_contested": group["duels_total"].sum(),
+    "duels_won": group["duels_won"].sum(),
+    "duels_won_percentage": group["duels_won"].sum() / group["duels_total"].sum() if group["duels_total"].sum() > 0 else 0,
+    "penalties_won": group["penalty_won"].sum(),
+    "penalties_committed": group["penalty_commited"].sum(),
+    "penalties_scored": group["penalty_scored"].sum(),
+    "penalties_missed": group["penalty_missed"].sum(),
+    "penalties_saved": group["penalty_saved"].sum(),
+    "team_goals_scored": group["team_goals_scored"].sum(),
+    "team_non_penalty_goals": group["team_non_penalty_goals_scored"].sum(),
+    "team_goals_conceded": group["team_goals_conceded"].sum(),
+    "team_non_penalty_goals_conceded": group["team_non_penalty_goals_conceded"].sum(),
+    "matches_won": group["win"].sum(),
+    # Per 90 stats
+    "total_shots_per_90": group["shots_total"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "shots_on_target_per_90": group["shots_on"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "goals_scored_per_90": group["goals_total"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "assists_per_90": group["goals_assists"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "yellow_cards_per_90": group["cards_yellow"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "red_cards_per_90": group["cards_red"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "fouls_drawn_per_90": group["fouls_drawn"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "fouls_committed_per_90": group["fouls_committed"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "attempted_dribbles_per_90": group["dribbles_attempts"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "successful_dribbles_per_90": group["dribbles_success"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "dribbled_past_per_90": group["dribbles_past"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "dribble_success_rate_per_90": (group["dribbles_success"].sum() / group["dribbles_attempts"].sum() if group["dribbles_attempts"].sum() > 0 else 0) * 90,
+    "total_passes_per_90": group["passes_total"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "key_passes_per_90": group["passes_key"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "average_passes_accurate_per_90": group["passes_accurate"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "average_pass_accuracy_per_90": (group["pass_accuracy_perc"] * group["games_minutes"]).sum()/group["games_minutes"].sum(),
+    "total_tackles_per_90": group["tackles_total"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "blocks_per_90": group["tackles_blocks"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "interceptions_per_90": group["tackles_interceptions"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "duels_contested_per_90": group["duels_total"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "duels_won_per_90": group["duels_won"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "duels_won_percentage_per_90": (group["duels_won"].sum() / group["duels_total"].sum() if group["duels_total"].sum() > 0 else 0) * 90,
+    "penalties_won_per_90": group["penalty_won"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "penalties_committed_per_90": group["penalty_commited"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "penalties_scored_per_90": group["penalty_scored"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "penalties_missed_per_90": group["penalty_missed"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    "penalties_saved_per_90": group["penalty_saved"].sum() / group["games_minutes"].sum() * 90 if group["games_minutes"].sum() > 0 else 0,
+    }))
+
+    if transpose:
+        final_dat = final_dat.T
+        final_dat.columns = final_dat.loc['player_name'].values
+        final_dat.drop(index = 'player_name',inplace = True)
+        final_dat.index.name = 'stat_type'
+    else:
+        pass
+
+    return final_dat
