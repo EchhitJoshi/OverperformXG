@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
+from datetime import datetime
 from sklearn.utils import resample
 import category_encoders as ce
 import joblib
+import os
 
 import plotly.express as px
 import plotly.graph_objects as go
@@ -16,6 +18,8 @@ import requests
 from pandas.api.types import is_datetime64_any_dtype, is_period_dtype
 
 from data_loader import *
+import folder_manager
+
 
 #Themes and options
 px.defaults.template = 'plotly_dark'
@@ -216,7 +220,7 @@ def create_data_index(data,data_dict,encoder = 'ordinal',encoding_path = '') -> 
         # save encoding
         ordinal_encodings[col] = encoder_alg
         if encoding_path:
-            joblib.dump(encoder_alg,encoding_path+col+"_"+encoder+".pkl")
+            joblib.dump(encoder_alg,folder_manager.encoding_path+col+"_"+encoder+".pkl")
         
 
 
@@ -276,3 +280,21 @@ def find_player(data,player_id = None,player_name = None):
 
 
 
+def create_submodel(model_name:str):
+    submodel_path = home_dir + "/outputs/models/"
+    author = "EJ"
+    
+    folder_manager.submodel_name = datetime.now().strftime("%d_%H_%M") + "_"+model_name
+    
+    folder_manager.output_path = submodel_path+folder_manager.submodel_name
+    
+    folder_manager.encoding_path = folder_manager.output_path+"/encodings/"
+    
+    folder_manager.feature_report_path = folder_manager.output_path+"/feature_report/"
+    
+    folder_manager.llm_code_path = folder_manager.output_path+"/llm_code_output/"
+
+    os.mkdir(folder_manager.output_path)
+    os.mkdir(folder_manager.encoding_path)
+    os.mkdir(folder_manager.feature_report_path)
+    os.mkdir(folder_manager.llm_code_path)

@@ -489,48 +489,54 @@ def check_elbow(n_clusters,dat):
     return km
 
 
-def fit_optimal_kmeans(dat,target):
+def fit_kmeans(dat,target:list,k = None):
     '''
     dat: data with target col
     target: column name
     '''
 
-    k = range(1,25)
 
-    with ProcessPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(check_elbow,i,dat[[target]]): i for i in k}
+    if not k:
+        k = range(1,25)
 
-        results = {}
-        for future in futures:
-            k_val = futures[future]
-            kmeans_val = future.result()
-            results[k_val] = kmeans_val.inertia_        
+        with ProcessPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(check_elbow,i,dat[target].dropna(axis = 0)): i for i in k}
 
-    ks = sorted(results.keys())
-    inertias = [results[k] for k in ks]
-    
-    first_deriv = np.diff(inertias)/np.diff(ks)
-    second_deriv = np.diff(first_deriv)
+            results = {}
+            for future in futures:
+                k_val = futures[future]
+                kmeans_val = future.result()
+                results[k_val] = kmeans_val.inertia_        
 
-    elbow_idx = np.argmin(np.abs(second_deriv)) + 1
-    elbow_k = ks[elbow_idx]
+        ks = sorted(results.keys())
+        inertias = [results[k] for k in ks]
+        
+        first_deriv = np.diff(inertias)/np.diff(ks)
+        second_deriv = np.diff(first_deriv)
 
-    print(f"lowest inertia value change: {elbow_k}")
+        elbow_idx = np.argmin(np.abs(second_deriv)) + 1
+        elbow_k = ks[elbow_idx]
 
-
-    plt.plot(ks, inertias, marker='o')
-    plt.axhline(y = inertias[elbow_k - 1],
-                color = 'r',
-                linestyle = '--',
-                label = f'Elbow at k = {elbow_k}')
-    plt.xlabel('Number of clusters k')
-    plt.ylabel('Inertia (WCSS)')
-    plt.title('Elbow Curve')
-    plt.show()
+        print(f"lowest inertia value change: {elbow_k}")
 
 
-    final_kmeans = KMeans(elbow_k,random_state=33)
-    dat[f"cluster_{target}"] = final_kmeans.fit_predict(dat[[target]])
+        plt.plot(ks, inertias, marker='o')
+        plt.axhline(y = inertias[elbow_k - 1],
+                    color = 'r',
+                    linestyle = '--',
+                    label = f'Elbow at k = {elbow_k}')
+        plt.xlabel('Number of clusters k')
+        plt.ylabel('Inertia (WCSS)')
+        plt.title('Elbow Curve')
+        plt.show()
+
+        k = elbow_k
+
+
+    final_kmeans = KMeans(k,random_state=33)
+    print(f"dropping {dat.shape[0] - dat.dropna().shape[0]} players due to nulls! ")
+    dat.dropna(axis = 0,inplace = True)
+    dat[f"cluster"] = final_kmeans.fit_predict(dat[target])
 
     return dat
 
