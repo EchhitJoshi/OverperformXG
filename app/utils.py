@@ -292,9 +292,9 @@ def create_submodel(model_name:str):
     
     folder_manager.feature_report_path = folder_manager.output_path+"/feature_report/"
     
-    folder_manager.llm_code_path = folder_manager.output_path+"/llm_code_output/"
+    #folder_manager.llm_code_path = folder_manager.output_path+"/llm_code_output/"
 
     os.mkdir(folder_manager.output_path)
     os.mkdir(folder_manager.encoding_path)
     os.mkdir(folder_manager.feature_report_path)
-    os.mkdir(folder_manager.llm_code_path)
+    #os.mkdir(folder_manager.llm_code_path)

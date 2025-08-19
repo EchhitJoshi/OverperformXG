@@ -3,6 +3,7 @@ import numpy as np
 import yaml
 import requests
 import time
+import re
 #from sqlalchemy import create_engine
 
 # Configs
@@ -342,3 +343,101 @@ def compare_players(dat,players:list,years:list,transpose:str):
         pass
 
     return final_dat
+
+
+def calculate_fixture_stats(dat):
+    aggregations = {
+        'offsides': [ 'mean'],
+        'games_minutes': [ 'mean'],
+        'games_number': ['mean'],
+        'games_rating': ['mean'],
+        'games_captain': [ 'mean'],
+        'games_substitute': [ 'mean'],
+        'shots_total': ['sum'],
+        'shots_on': ['sum'],
+        'goals_total': ['sum'],
+        'goals_assists': ['sum'],
+        'goals_saves': ['sum'],
+        'passes_total': ['sum'],
+        'passes_key': ['sum'],
+        'passes_accurate': ['sum'],
+        'tackles_total': ['sum'],
+        'tackles_blocks': ['sum'],
+        'tackles_interceptions': ['sum'],
+        'duels_total': ['sum'],
+        'duels_won': ['sum'],
+        'dribbles_attempts': ['sum'],
+        'dribbles_success': ['sum'],
+        'dribbles_past': ['sum'],
+        'fouls_drawn': ['sum'],
+        'fouls_committed': ['sum'],
+        'cards_yellow': ['sum'],
+        'cards_red': ['sum'],
+        'penalty_won': ['sum'],
+        'penalty_commited': ['sum'],
+        'penalty_scored': ['sum'],
+        'penalty_missed': ['sum'],
+        'penalty_saved': ['sum'],
+        'dribble_success_rate': ['mean'],
+        'target_shot_conversion_perc': ['mean'],
+        'duels_won_perc': ['mean'],
+        'pass_accuracy_perc': ['mean'],
+        'win':['unique']
+    }
+
+    # Perform the groupby and aggregation
+    aggregated = dat[dat.games_position.isin(["M","F","D"])].groupby(['fixture_id', 'team', 'games_position']).agg(aggregations)
+
+    # Flatten column names to remove multi-index for aggregated statistics
+    aggregated.columns = ['_'.join(col).strip() for col in aggregated.columns]
+
+
+    # Reset index for pivoting/grouped analysis
+    aggregated = aggregated.reset_index()
+
+
+    #print(aggregated.head())
+
+    # Filter relevant columns for the fixture level (team-wide stats, no aggregation needed)
+    team_level_columns = [
+        'fixture_id', 'team', 'team_goals_scored', 'team_non_penalty_goals_scored',
+        'team_goals_scored_half', 'team_goals_conceded',
+        'team_non_penalty_goals_conceded', 'team_goals_conceded_half',
+        'team_winner', 'opponent'
+    ]
+
+    # Extract team-wide stats (no aggregation needed)
+    team_data = dat[team_level_columns].drop_duplicates()
+
+
+    # Merge the team-wide stats back with the position-based aggregated stats
+    merged_data = aggregated.merge(team_data, on=['fixture_id', 'team'], how='left')
+
+    # Pivot the data to have one row per fixture_id + team and columns as aggregated stats per games_position
+    # result = merged_data.pivot_table(
+    #     index=['fixture_id', 'team'],  # Group by fixture_id and team
+    #     columns='games_position',     # Separate columns by games_position
+    #     values=[col for col in merged_data.columns if col not in ['fixture_id', 'team', 'games_position']],
+    #     aggfunc='first'               # Only one value per attribute for each position
+    # )
+
+    # # Flatten the resulting pivot table's columns
+    # result.columns = ['_'.join([str(c) for c in col]).strip() for col in result.columns]
+
+    # Reset index to have fixture_id and team as columns
+    #result = result.reset_index()
+
+    # Final wrangling
+    merged_data = merged_data.fillna(0)
+    merged_data.columns = [re.sub(r"(_sum|_mean|_unique)$","",col) for col in merged_data.columns]    
+    merged_data['win'] = merged_data['win'].apply(lambda x: x[0])
+
+    # Add dates:
+    fixture_date = dat[['fixture_id','week_e','year_e']].drop_duplicates()
+    merged_data = pd.merge(merged_data,fixture_date[['fixture_id','week_e','year_e']],how = 'left',on = 'fixture_id')
+
+    return merged_data
+
+    # --- End of generated code block ---
+
+    
