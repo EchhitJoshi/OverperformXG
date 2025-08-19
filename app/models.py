@@ -489,7 +489,7 @@ def check_elbow(n_clusters,dat):
     return km
 
 
-def fit_kmeans(dat,target:list,k = None):
+def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster'):
     '''
     dat: data with target col
     target: column name
@@ -536,7 +536,7 @@ def fit_kmeans(dat,target:list,k = None):
     final_kmeans = KMeans(k,random_state=33)
     print(f"dropping {dat.shape[0] - dat.dropna().shape[0]} players due to nulls! ")
     dat.dropna(axis = 0,inplace = True)
-    dat[f"cluster"] = final_kmeans.fit_predict(dat[target])
+    dat[f"{cluster_colname}"] = final_kmeans.fit_predict(dat[target])
 
     return dat
 

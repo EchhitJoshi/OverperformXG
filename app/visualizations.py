@@ -96,3 +96,39 @@ def plot_prediction_density(outcomes_df):
     # axes.set_ylabel("density")
     # axes.set_title("predicted class distribution")
     # fig.show()
+
+
+def plot_continuous_trend(dat,x,y):
+    # Convert 'month_e' (Period) to string to make it compatible with Plotly
+    dat[f'{x}_str'] = dat[x].astype(str)
+
+    # Compute average games_rating and standard deviation grouped by month_e_str and team
+    agg_data = dat.groupby([f'{x}_str', 'team','year_e']).agg(
+        mean_stat=(y, 'mean'),
+        std_stat=(y, 'std')
+    ).reset_index()
+    agg_data['year_e'] = agg_data['year_e'].astype('str')
+
+    # Create the scatter plot with error cloud faceted by team
+    fig = px.scatter(
+        agg_data,
+        x=f'{x}_str',
+        y='mean_stat',
+        error_y='std_stat',
+        color = 'year_e',
+        facet_col='team',
+        labels={f'{x}_str': x, 'mean_stat': f"mean_{y}"},
+        title=f'Average {y} by Month (faceted by Team)',
+        height=600
+    )
+
+    # Update layout for better aesthetics
+    fig.update_layout(
+        xaxis_title=x,
+        yaxis_title=f"mean_{y}",
+        title_x=0.5
+    )
+
+    # Display the plot
+    fig.show()
+    # --- End of generated code block ---

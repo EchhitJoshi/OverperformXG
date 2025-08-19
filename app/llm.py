@@ -1,5 +1,6 @@
 
 from data_loader import *
+from visualizations import *
 import folder_manager
 from openai import OpenAI
 from transformers import pipeline
@@ -113,7 +114,115 @@ def ask_gpt_q(question:str,model = 'gpt-4o'):
     df = pd.DataFrame(data)
     return df
 
-        
+
+def ask_gpt_general(dat: pd.DataFrame, question: str):
+    client = OpenAI(base_url=endpoint, api_key=token)
+    
+    system_prompt = f"""
+You are a careful Python soccer analyst.
+- You will receive the schema of a pandas DataFrame named `dat` (already defined at runtime).
+- Write Python code that uses ONLY `dat`, pandas (pd), and numpy (np).
+- Do NOT fabricate numbers. Compute everything from `dat`.
+- Put the final result in a variable named `result`.
+- `result` must be either:
+  (a) a pandas DataFrame, or
+  (b) a JSON-serializable dict/list.
+- No file I/O, no network, no reading/writing disk, no imports beyond pandas/numpy.
+- Return ONLY a single Python code block.
+"""
+#{'- Create _per_90 stats after computing non _per_90 columns and then by dividing the stats by (total_minutes_played/90)' if normalize else ''}
+
+    schema = {
+        "columns": list(dat.columns),
+        "dtypes": {c: str(dat[c].dtype) for c in dat.columns},
+        "rows": len(dat)
+    }
+
+
+    #print(schema)
+
+    user_prompt = f"""
+DataFrame schema:
+{json.dumps(schema, indent=2)}
+
+Task:
+{question}
+
+Requirements:
+- Use the provided `dat` (already defined in the runtime).
+- Assign your final answer to a variable named `result`.
+"""
+    # Try different models to surpass quota
+    try:
+        print(f"trying {model[0]}")
+        resp = client.chat.completions.create(
+            model=model[0],  # e.g., "gpt-4o" or "gpt-4o-mini"
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+    except Exception as e:
+        try:
+            print(f"trying {model[1]}")
+            resp = client.chat.completions.create(
+                model=model[1],  # e.g., "gpt-4o" or "gpt-4o-mini"
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+            )
+        except Exception as e:
+            print(f"trying {model[2]}")
+            resp = client.chat.completions.create(
+            model=model[2],  # e.g., "gpt-4o" or "gpt-4o-mini"
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+                ]
+            )
+
+    
+    content = resp.choices[0].message.content
+
+    # Extract code from a ```python ... ``` block
+    m = re.search(r"```(?:python)?\n([\s\S]*?)```", content)
+    code = m.group(1).strip() if m else content.strip()
+
+    with open(f"{folder_manager.llm_code_path}", "a", encoding="utf-8") as f:
+        f.write("\n\n# --- New generated code block ---\n")
+        f.write(code)
+        f.write("\n# --- End of generated code block ---\n")
+
+
+    # Naive safety checks (keep it simple but useful)
+    forbidden = ("open(", "os.", "sys.", "subprocess", "requests", "eval(", "exec(", "__import__")
+    if any(x in code for x in forbidden):
+        raise ValueError(f"Model attempted {code} unsafe operations. Aborting.")
+
+    # Execute the code with a restricted namespace
+    local_vars = {"pd": pd, "np": np, "dat": dat}
+    exec(code, local_vars, local_vars)
+
+    if "result" not in local_vars:
+        raise ValueError("No `result` variable produced by model.")
+
+    result = local_vars["result"]
+
+    # Normalize to DataFrame if possible
+    if isinstance(result, pd.DataFrame):
+        return result
+    elif isinstance(result, (list, dict)):
+        try:
+            return pd.DataFrame(result)
+        except Exception:
+            # Fallback: return as-is if it doesn't tabulate cleanly
+            return result
+    else:
+        # Numbers/strings, etc.
+        return result
+
+
 
 def ask_gpt_strict(dat: pd.DataFrame, question: str,normalize = False):
     client = OpenAI(base_url=endpoint, api_key=token)
@@ -177,8 +286,7 @@ Requirements:
 - Use the provided `dat` (already defined in the runtime).
 - Assign your final answer to a variable named `result`.
 """
-
-    # One call, no JSON mode (we want code)
+    # Try different models to surpass quota
     try:
         print(f"trying {model[0]}")
         resp = client.chat.completions.create(
@@ -215,7 +323,7 @@ Requirements:
     m = re.search(r"```(?:python)?\n([\s\S]*?)```", content)
     code = m.group(1).strip() if m else content.strip()
 
-    with open(f"{folder_manager.llm_code_path}llm_code_output.py", "a", encoding="utf-8") as f:
+    with open(f"{folder_manager.llm_code_path}", "a", encoding="utf-8") as f:
         f.write("\n\n# --- New generated code block ---\n")
         f.write(code)
         f.write("\n# --- End of generated code block ---\n")
@@ -281,6 +389,81 @@ def compare_players_from_llm(dat:pd.DataFrame,player_list:list,years:list,normal
     return final_dat
 
 
+
+
+def plot_from_llm(dat,question:str):
+    
+    # OpenAI client
+    client = OpenAI(base_url = endpoint,api_key = token)
+    
+    schema = {
+        "columns": list(dat.columns),
+        "nrows": [dat.shape[0]],
+        "dtypes": {col : str(dat[col].dtype) for col in dat.columns}
+    }
+
+
+    system_prompt = """
+    - You are an experienced Data Visualizer with Plotly Python
+    - You will be given a 'dat' dataset with its schema and a question
+    - Infer what columns to pull from the question and build a relevant plot as asked by the question
+    - Always return valid plotly code using 'dat' and its columns
+    - If datatype is Period, make relevant conversion so that plotly can understand it
+    """
+
+    user_prompt = f"""
+    - Task: {question}
+    - dat schema = {json.dumps(schema,indent=2)}
+
+    Requirements:
+    - Use the provided `dat` (already defined in the runtime).
+    - Produce efficient plotly python code
+    - If kde is being asked, Do not use a density_contour plot, plot something similar to seaborn kdeplot
+    """
+    
+
+    loop_condition = True
+    i = 0
+    while loop_condition:
+        try:
+            print(f"Trying model {model[i]}")
+            response = client.chat.completions.create(
+                model = model[i],
+                messages = [
+                    {'role':'system','content':system_prompt},
+                    {'role':'user','content':user_prompt},
+                ]
+            )
+            loop_condition = False
+        except:
+            i += 1
+            if i > len(model):
+                loop_condition = False
+
+
+    
+    content = response.choices[0].message.content
+
+
+    # Extract code from a ```python ... ``` block
+    m = re.search(r"```(?:python)?\n([\s\S]*?)```", content)
+    code = m.group(1).strip() if m else content.strip()
+
+    with open(f"{folder_manager.llm_code_path}", "a", encoding="utf-8") as f:
+        f.write("\n\n# --- New generated code block ---\n")
+        f.write(code)
+        f.write("\n# --- End of generated code block ---\n")
+    
+
+    
+    # Naive safety checks (keep it simple but useful)
+    forbidden = ("open(", "os.", "sys.", "subprocess", "requests", "eval(", "exec(", "__import__")
+    if any(x in code for x in forbidden):
+        raise ValueError(f"Model attempted {code} unsafe operations. Aborting.")
+
+    # Execute the code with a restricted namespace
+    local_vars = {"pd": pd, "np": np, "px":px,"dat": dat}
+    exec(code, local_vars, local_vars)
 
 
 
