@@ -298,3 +298,11 @@ def create_submodel(model_name:str):
     os.mkdir(folder_manager.encoding_path)
     os.mkdir(folder_manager.feature_report_path)
     #os.mkdir(folder_manager.llm_code_path)
+
+
+def get_season(date):
+    year = date.year
+    if date.month >= 8:
+        return f"{year}/{year+1}"
+    else:
+        return f"{year-1}/{year}"
