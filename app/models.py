@@ -482,7 +482,31 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster'):
     final_kmeans = KMeans(k,random_state=33)
     print(f"dropping {dat.shape[0] - dat.dropna().shape[0]} players due to nulls! ")
     dat.dropna(axis = 0,inplace = True)
-    dat[f"{cluster_colname}"] = final_kmeans.fit_predict(dat[target])
+    labels = final_kmeans.fit_predict(dat[target])
+    dat[f"{cluster_colname}"] = labels
+
+
+    from sklearn.decomposition import PCA
+    # Reduce dimensions for plotting
+    X_reduced = PCA(n_components=2).fit_transform(dat[target])
+
+    # Reduce cluster centers into PCA space as well
+    
+    pca = PCA(n_components=2)
+    X_reduced = pca.fit_transform(dat[target])
+    centers_reduced = pca.transform(final_kmeans.cluster_centers_)
+
+    # Cluster plots
+    plt.figure(figsize=(8,6))
+    plt.scatter(X_reduced[:, 0], X_reduced[:, 1], c=labels, cmap='tab10', alpha=0.7)
+    plt.scatter(centers_reduced[:, 0], centers_reduced[:, 1], 
+                c='black', marker='X', s=200, label='Centers')
+    plt.title("KMeans clusters in PCA space")
+    plt.legend()
+    plt.show()
+
+
+
 
     return dat
 

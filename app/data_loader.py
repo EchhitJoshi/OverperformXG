@@ -85,7 +85,7 @@ def get_team_fixtures(team, season, league = None):
 
 
         
-def read_fixtures_for_season(team,season):
+def read_fixtures_for_season(team,season,sleep_time = 2):
     """
     team: Name of team
     season: int, year of the season start
@@ -104,7 +104,7 @@ def read_fixtures_for_season(team,season):
     for fixture in home_fixtures + away_fixtures:
         player_stat_url = "https://v3.football.api-sports.io/fixtures/players?fixture={}".format(fixture)
         fixture_dat = requests.get(player_stat_url,headers=headers_api_sport)
-        time.sleep(2)
+        time.sleep(sleep_time)
         if fixture in home_fixtures:
             #process for home
             fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
@@ -345,7 +345,7 @@ def compare_players(dat,players:list,years:list,transpose:str):
     return final_dat
 
 
-def calculate_fixture_stats(dat):
+def calculate_fixture_stats(dat,group_cols = []):
     aggregations = {
         'offsides': [ 'mean'],
         'games_minutes': [ 'mean'],
@@ -386,7 +386,7 @@ def calculate_fixture_stats(dat):
     }
 
     # Perform the groupby and aggregation
-    aggregated = dat[dat.games_position.isin(["M","F","D"])].groupby(['fixture_id', 'team', 'games_position']).agg(aggregations)
+    aggregated = dat[dat.games_position.isin(["M","F","D"])].groupby(['fixture_id', 'team'] + group_cols ).agg(aggregations)
 
     # Flatten column names to remove multi-index for aggregated statistics
     aggregated.columns = ['_'.join(col).strip() for col in aggregated.columns]
@@ -431,12 +431,13 @@ def calculate_fixture_stats(dat):
     merged_data = merged_data.fillna(0)
     merged_data.columns = [re.sub(r"(_sum|_mean|_unique)$","",col) for col in merged_data.columns]    
     merged_data['win'] = merged_data['win'].apply(lambda x: x[0])
+    merged_data['goal_diff'] = merged_data['team_goals_scored'] - merged_data['team_goals_conceded']
 
     # Add dates:
-    fixture_date = dat[['fixture_id','week_e','year_e']].drop_duplicates()
-    merged_data = pd.merge(merged_data,fixture_date[['fixture_id','week_e','year_e']],how = 'left',on = 'fixture_id')
+    fixture_date = dat[['fixture_id','week_e','year_e','season']].drop_duplicates()
+    merged_data = pd.merge(merged_data,fixture_date[['fixture_id','week_e','year_e','season']],how = 'left',on = 'fixture_id')
 
-    return merged_data
+    return merged_data[merged_data.week_e.notna()]
 
     # --- End of generated code block ---
 
