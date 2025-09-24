@@ -1,0 +1,7 @@
+User Task: Create a streamlit app using stuff from main.ipynb (now main.py). The app should be a modern Soccer analytics app, modifiable from a yaml file. Start with player comparison, team ability, and variable correlation tabs. Create a new directory called streamlit for all of these operations.
+
+[Progress] Fixed FileNotFoundError in app/data_loader.py by using an absolute path for config.yaml.\n[Task] Run streamlit app and fix errors.\n[Progress] Fixed KeyError in app/data_loader.py by refactoring the compare_players function.
+[Progress] Updated Player Comparison tab to use per 90 stats for radar charts and added a bar chart for stat comparison.
+[Progress] Implemented position-based standardization for radar chart stats.
+[Progress] Fixed KeyError by pre-calculating per 90 stats. Changed year multiselect to season.
+[Progress] Implemented percentile-based scaling for radar charts.

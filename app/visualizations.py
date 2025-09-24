@@ -1,10 +1,9 @@
+# Force reload
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
-import matplotlib.pyplot as plt
-import seaborn as sns
 from sklearn.metrics import ConfusionMatrixDisplay
 from scipy.stats import gaussian_kde
 
@@ -13,61 +12,81 @@ General functions for plots and facets
 Some customizations for dashboarding, functions suffixed with _d
 """
 
-
 def plot_pie(df:pd.DataFrame,col:str, facet_col:str = None):
     if facet_col:
         fig = px.pie(df,names = col,facet_col = facet_col)
     else:
         fig = px.pie(df,names = col)
-    fig.show()
+    return fig
     
 def plot_bar(df:pd.DataFrame,col:str, facet_col:str = None):
     if facet_col:
         return px.bar(df,x= col,facet_col = facet_col)
     else:
         return px.bar(df,x = col)
-    
 
+def plot_correlation_matrix(df):
+    corr = df.corr()
+    fig = px.imshow(corr, text_auto=True)
+    return fig
+
+def plot_team_performance(df, team_name):
+    fig = px.bar(df, x='year_e', y='team_goals_scored', title=f'Team Performance for {team_name}')
+    return fig
+
+def plot_player_comparison(df, players, categories):
+    fig = go.Figure()
+
+    for player in players:
+        player_data = df[df['player_name'] == player]
+        values = player_data[categories].values.flatten().tolist()
+        fig.add_trace(go.Scatterpolar(
+            r=values,
+            theta=categories,
+            fill='toself',
+            name=player
+        ))
+
+    fig.update_layout(
+      polar=dict(
+        radialaxis=dict(
+          visible=True,
+          range=[0, 100]
+        )),
+      showlegend=True
+    )
+
+    return fig
+
+def plot_player_stats_bar_chart(df, players, categories):
+    bar_data = df[df['player_name'].isin(players)]
+    bar_data = bar_data.melt(id_vars=['player_name'], value_vars=categories, var_name='stat', value_name='value')
+    fig = px.bar(bar_data, x='stat', y='value', color='player_name', barmode='group')
+    return fig
 
 # validation metrics
 
 def plot_confusion_matrix(cm):
-    cm_plot = ConfusionMatrixDisplay(cm)
-    cm_plot.plot()
-    plt.title('Confusion Matrix')
-    plt.show()
-
+    fig = ff.create_annotated_heatmap(cm, x=['Predicted 0', 'Predicted 1'], y=['Actual 0', 'Actual 1'])
+    fig.update_layout(title_text='Confusion Matrix')
+    return fig
 
 def plot_roc(fpr,tpr,threshold_roc,roc_score):
-    plt.figure()
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_score:.2f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve')
-    plt.legend(loc="lower right")
-    plt.show()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'ROC curve (area = {roc_score:.2f})'))
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Chance', line=dict(dash='dash')))
+    fig.update_layout(title_text='Receiver Operating Characteristic (ROC) Curve')
+    return fig
 
 def plot_precision_recall(recall_curve,precision_curve,pr_auc_score):
-    plt.figure()
-    plt.plot(recall_curve, precision_curve, color='blue', lw=2, label=f'Precision-Recall curve (area = {pr_auc_score:.2f})')
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision-Recall Curve')
-    plt.legend(loc="lower left")
-    plt.show()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=recall_curve, y=precision_curve, mode='lines', name=f'Precision-Recall curve (area = {pr_auc_score:.2f})'))
+    fig.update_layout(title_text='Precision-Recall Curve')
+    return fig
 
 def plot_feature_importance(top_25_features):
-    plt.figure(figsize=(12, 10)) 
-    plt.barh(top_25_features['feature_names'], top_25_features['feature_importance'])
-    plt.xlabel('Feature Importance')
-    plt.ylabel('Feature Name')
-    plt.title('Top 25 Feature Importances')
-    plt.gca().invert_yaxis()
-    plt.show()
-
+    fig = px.bar(top_25_features, x='feature_importance', y='feature_names', orientation='h', title='Top 25 Feature Importances')
+    return fig
 
 def plot_prediction_density(outcomes_df):
     '''
@@ -96,7 +115,6 @@ def plot_prediction_density(outcomes_df):
     # axes.set_ylabel("density")
     # axes.set_title("predicted class distribution")
     # fig.show()
-
 
 def plot_continuous_trend(dat,x,y):
     # Convert 'month_e' (Period) to string to make it compatible with Plotly
@@ -129,6 +147,6 @@ def plot_continuous_trend(dat,x,y):
         title_x=0.5
     )
 
-    # Display the plot
     fig.show()
-    # --- End of generated code block ---
+
+    return fig

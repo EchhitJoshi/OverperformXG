@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor,as_complet
 from visualizations import *
 from validations import discrete_evaluations, check_feature_importance, tune_prob_threshold
 from reports import *
+from utils import *
 
 from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import SelectFromModel
@@ -435,12 +436,18 @@ def check_elbow(n_clusters,dat):
     return km
 
 
-def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster'):
+def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path = None):
     '''
     dat: data with target col
     target: column name
     '''
 
+    # Create kmeans directory:
+    if not model_path:
+        model_path = get_latest_model_folder(home_dir + "/outputs/models")
+        
+    if not os.path.exists(model_path+"/kmeans/"):
+        os.mkdir(model_path+"/kmeans/")
 
     if not k:
         k = range(1,25)
@@ -485,6 +492,18 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster'):
     labels = final_kmeans.fit_predict(dat[target])
     dat[f"{cluster_colname}"] = labels
 
+    # Save kmeans model:
+    joblib.dump(final_kmeans,model_path+"/kmeans/kmeans_model.pkl")
+
+    # Suppose your model is called final_kmeans
+    centers = final_kmeans.cluster_centers_
+
+    # Optional: give nice column names (same as your features)
+    col_names = dat[target].columns  
+
+    df_centers = pd.DataFrame(centers, columns=col_names)
+    df_centers.to_csv(model_path+"/kmeans" + "cluster_centers.csv", index=False)
+
 
     from sklearn.decomposition import PCA
     # Reduce dimensions for plotting
@@ -504,6 +523,8 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster'):
     plt.title("KMeans clusters in PCA space")
     plt.legend()
     plt.show()
+
+    
 
 
 
