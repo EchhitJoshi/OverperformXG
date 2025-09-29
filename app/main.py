@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[68]:
+# In[27]:
 
 
 import pandas as pd
@@ -39,6 +39,7 @@ plt.rcParams.update({
     'grid.color': 'gray'
 })
 
+
 pd.set_option("display.max_column",None)
 print(os.getcwd())
 
@@ -56,7 +57,7 @@ def auto_reload():
     get_ipython().run_line_magic('autoreload', '2')
 
 
-# In[2]:
+# In[3]:
 
 
 with open("config.yaml",'r') as f:
@@ -66,7 +67,7 @@ home_dir = config['HOME_DIRECTORY']
 home_dir
 
 
-# In[3]:
+# In[4]:
 
 
 create_submodel("llm_new")
@@ -77,7 +78,7 @@ create_submodel("llm_new")
 
 # ![PYTHON LOGO](https://www.api-football.com/public/img/news/archi-beta.jpg)
 
-# In[4]:
+# In[5]:
 
 
 leagues_dat = get_leagues(home_dir +"/data/Leagues/leagues.parquet")
@@ -86,7 +87,7 @@ leagues_dat[['league_id','league_name','country_name']]
 
 # # Leagues subset:
 
-# In[5]:
+# In[6]:
 
 
 # Configs
@@ -102,13 +103,13 @@ leagues_subset = leagues_dat[leagues_dat.league_name.isin(major_leagues) & leagu
 
 # # Read All fixtures data
 
-# In[6]:
+# In[7]:
 
 
 teams_dat = pd.read_parquet(home_dir + "/data/Teams/team_league.parquet")
 
 
-# In[7]:
+# In[8]:
 
 
 fixtures_dir = home_dir + "/data/Fixtures"
@@ -122,19 +123,7 @@ complete_data = complete_data.reset_index()
 complete_data.drop(columns = ['index'],inplace=True)
 
 
-# In[8]:
-
-
-complete_data.columns
-
-
 # In[9]:
-
-
-leagues_dat.head()
-
-
-# In[10]:
 
 
 # Data checks
@@ -152,6 +141,8 @@ complete_data['season'] = complete_data['fixture_date'].apply(get_season)
 complete_data['outcome_num'] = pd.Categorical(complete_data.outcome).codes
 
 complete_data['win'] = np.where(complete_data.outcome.str.lower() == 'win', 1,0)
+complete_data['draw'] = np.where(complete_data.outcome.str.lower() == 'draw', 1,0)
+complete_data['loss'] = np.where(complete_data.outcome.str.lower() == 'loss', 1,0)
 
 # Joins:
 complete_data = complete_data.merge(teams_dat.drop_duplicates(),how = 'left', left_on= 'team',right_on = 'team_name').drop(columns = ['team_name'])
@@ -161,24 +152,12 @@ complete_data = complete_data.merge(leagues_dat[['league_id','league_name']],how
 # In[11]:
 
 
-complete_data.head()
-
-
-# In[12]:
-
-
-complete_data[complete_data['fixture_date'].isna()]
-
-
-# In[13]:
-
-
 # This is the dictionary that contains all information about the features    
 dat_dict = find_data_types(complete_data,config['OUTCOME_COLS'] + ['outcome_num','outcome'])
 dat_dict = pd.DataFrame(list(dat_dict.items()),columns =['feature','type'])
 
 # differentiate modeling features
-non_modeling_features = config['FIXTURE_COLS'] + config['OUTCOME_COLS'] + config['MISC_COLS'] + ['outcome_num','league','win','fixture_date','season','fixture_date_dt','major_position']
+non_modeling_features = config['FIXTURE_COLS'] + config['OUTCOME_COLS'] + config['MISC_COLS'] + ['outcome_num','league','win','fixture_date','season','fixture_date_dt','major_position','draw','loss']
 dat_dict['modeling_feature'] = np.where(dat_dict['feature'].isin(non_modeling_features),0,1)
 dat_dict['encoded'] = 0
 
@@ -190,37 +169,31 @@ dat_dict = create_data_index(complete_data,dat_dict,'target',folder_manager.enco
 dat_dict[dat_dict.modeling_feature ==1]
 
 
-# In[14]:
+# In[12]:
 
 
 # primary position map:
-player_position = complete_data.groupby(["player_id","games_position"],as_index = False).agg(games_played = ("player_id","size"))
-player_position['multiple_records'] = player_position.groupby('player_id')['games_played'].transform("cumsum")
-player_position['multiple_records'] = player_position.groupby('player_id')['multiple_records'].transform("max")
-player_position['major_position'] = np.where(player_position.games_played/player_position.multiple_records >= .5, player_position.games_position,None)
-player_position_map = player_position[['player_id','major_position']].dropna().drop_duplicates()
-player_position_map
+player_map = get_major_position(complete_data)
 
 # Join back to complete_data
+complete_data = pd.merge(complete_data,player_map,on = 'player_id',how = 'left')
 
-complete_data = pd.merge(complete_data,player_position_map,on = 'player_id',how = 'left')
 
-
-# In[15]:
+# In[ ]:
 
 
 # Run Player Comparison from LLm 
 #player_compare  = compare_players_from_llm(complete_data,["Giovanni Leoni","Ibrahima Konaté"],years = [2025],normalize=True)
 
 
-# In[ ]:
+# In[13]:
 
 
 # Fixture-Player data aggregated to Fixture level:
 fixture_dat = calculate_fixture_stats(complete_data,['league_name'])
 
 
-# In[73]:
+# In[14]:
 
 
 # Sanity Check
@@ -450,28 +423,36 @@ pd.pivot(team_cluster_map.groupby(['season','league_name'])['team_cluster'].nuni
 
 # # Method 2: Kmeans
 
-# In[89]:
+# In[28]:
+
+
+auto_reload()
+
+
+# In[35]:
 
 
 # Fixture-Player data aggregated to Fixture level:
 fixture_dat = calculate_fixture_stats(complete_data,['league_name'])
+fixture_dat.head()
 
 
-# In[90]:
+# In[ ]:
 
 
 # Since tree classification is on a single metric,
 # I will try a K-means clustering approach to account for all data to cluster teams to get ~10-15 different playing styles
 
-kmeans_cols = list(set(['games_rating','shots_total','shots_on','passes_key','passes_accurate','duels_total','duels_won','fouls_drawn',
-'dribble_success_rate','target_shot_conversion_perc','duels_won_perc','pass_accuracy_perc','fouls_committed','penalty_won','penalty_commited']))
+kmeans_cols = list(set(['games_rating','shots_total','shots_on','passes_total','passes_key','passes_accurate','duels_total','duels_won','fouls_drawn','cards_yellow','tackles_interceptions','tackles_blocks',
+'dribble_success_rate','dribbles_past','target_shot_conversion_perc','duels_won_perc','pass_accuracy_perc','fouls_committed','fouls_drawn','penalty_won','penalty_commited']))
 
 
 fixture_dat = fit_kmeans(fixture_dat,kmeans_cols,k = 15)
 
-fixture_dat = fixture_dat.merge(fixture_dat[['team','fixture_id','cluster']],left_on = ['fixture_id','opponent'],right_on = ['fixture_id','team'],suffixes=("","_opponent_km"),how = 'left').drop(columns = ['team_opponent_km'])
-fixture_dat = fixture_dat[fixture_dat.cluster_opponent_km.notna()]
-fixture_dat['cluster_opponent_km'] = fixture_dat['cluster_opponent_km'].astype("int")
+fixture_dat = fixture_dat.merge(fixture_dat[['team','fixture_id','cluster_rank']],left_on = ['fixture_id','opponent'],right_on = ['fixture_id','team'],suffixes=("","_opponent_km"),how = 'left').drop(columns = ['team_opponent_km'])
+fixture_dat = fixture_dat[fixture_dat.cluster_rank_opponent_km.notna()]
+fixture_dat['cluster_rank'] = fixture_dat['cluster_rank'].astype("int")
+fixture_dat['cluster_rank_opponent_km'] = fixture_dat['cluster_rank_opponent_km'].astype("int")
 fixture_dat.head()
 
 
@@ -479,19 +460,65 @@ fixture_dat.head()
 # In[ ]:
 
 
-# Inspect Clusters
-clusters = pd.read_csv("/Users/echhitjoshi/Library/Mobile Documents/com~apple~CloudDocs/Work/overperformXG/outputs/models/22_15_36_llm_new/kmeanscluster_centers.csv")
+# Clusters grouped by win rate
+cluster_map = fixture_dat.groupby(['cluster','cluster_rank'],as_index = False).agg(games = ('cluster','size') )
+clusters = pd.read_csv("/Users/echhitjoshi/Library/Mobile Documents/com~apple~CloudDocs/Work/overperformXG/outputs/models/24_15_54_llm_new/kmeanscluster_centers.csv").reset_index().rename(columns = {'index':'cluster'})
+clusters = clusters.merge(cluster_map,how = 'left').drop(columns = ['cluster'])
+print(f"Number of clusters: {clusters.shape[0]}")
+clusters = pd.concat([clusters.iloc[:,-2:], clusters.iloc[:,:-2]],axis = 1).sort_values('cluster_rank')
+clusters['cluster_rank'] = clusters['cluster_rank'].astype("int")
+clusters.sort_values('cluster_rank',ascending = True,inplace = True)
 clusters
 
 
-# In[92]:
+# In[ ]:
 
 
-print("Calculated Playing styles: ")
-fixture_dat.cluster.nunique()
 
 
-# In[93]:
+
+# In[58]:
+
+
+# Cluster feature distribution
+px.violin(fixture_dat,y = 'target_shot_conversion_perc',x = 'cluster_rank')
+
+
+# In[ ]:
+
+
+fixture_dat[fixture_dat.team == 'Crystal Palace'][['fixture_date','team','cluster','opponent','cluster_opponent_km','goal_diff']].sort_values('fixture_date',ascending = False).head(38)
+
+
+# In[ ]:
+
+
+clusters
+
+
+# In[ ]:
+
+
+fixture_dat[(fixture_dat.team == 'Liverpool') & (fixture_dat.opponent == 'Crystal Palace')][['fixture_date','team','cluster','cluster_opponent_km','opponent']].sort_values('fixture_date',ascending = False)
+
+
+# In[ ]:
+
+
+# Idea:
+# Given Team and opponent, can we infer the playing style i.e. cluster 
+
+# Lets try
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import train_test_split
+
+
+# split
+
+fixture_dat
+
+
+# In[ ]:
 
 
 #Binomial data for Bayesian Model:
@@ -552,13 +579,13 @@ with pm.Model(coords = coords) as model:
     trace = pm.sample()
 
 
-# In[49]:
+# In[ ]:
 
 
 post = pm.summary(trace)
 
 
-# In[55]:
+# In[ ]:
 
 
 season_filter = ['2022/2023','2024/2025','2023/2024']
@@ -569,7 +596,7 @@ team_dat = season_dat.sel(team = teams_filter)
 team_dat
 
 
-# In[56]:
+# In[ ]:
 
 
 import plotly.express as px
@@ -577,8 +604,9 @@ import numpy as np
 
 # Select your variable
 theta = team_dat['theta'] if 'theta' in team_dat.data_vars else team_dat
+theta_stacked = theta.stack(sample = ("chain","draw"))
 
-chains = theta.chain.values
+#chains = theta.chain.values
 seasons = theta.season.values
 teams = theta.team.values
 
@@ -591,14 +619,14 @@ plot_data = {
 }
 
 # Loop over coordinates and fill the dictionary
-for chain in chains:
-    for season in seasons:
-        for team in teams:
-            y = theta.sel(chain=chain, season=season, team=team).values
-            plot_data['value'].extend(y)
-            plot_data['team'].extend([team]*len(y))
-            plot_data['chain'].extend([chain]*len(y))
-            plot_data['season'].extend([season]*len(y))
+#for chain in chains:
+for season in seasons:
+    for team in teams:
+        y = theta_stacked.sel( season=season, team=team).values
+        plot_data['value'].extend(y)
+        plot_data['team'].extend([team]*len(y))
+        plot_data['chain'].extend([chain]*len(y))
+        plot_data['season'].extend([season]*len(y))
 
 # Create the interactive KDE plot
 fig = px.violin(
@@ -606,11 +634,10 @@ fig = px.violin(
     x='team',
     y='value',
     color='team',
-    facet_row='chain',
     facet_col='season',
     box=True,          # optional: show boxplot inside violin
     points='all',      # optional: show all individual points
-    hover_data=['team', 'chain', 'season']
+    hover_data=['team', 'season']
 )
 
 fig.update_layout(height=300*len(chains), width=2000)
@@ -620,21 +647,15 @@ fig.show()
 # In[ ]:
 
 
-model.decision_path(team_class_dat[team_class_dat.year_e == year][['team']])
+fixture_dat = calculate_fixture_stats(complete_data,['games_position'])
 
 
 # In[ ]:
 
 
-pd.Series(y_pred_proba.max(axis=1)).value_counts()
+filter = 'games_position.isin(["M","D"])' #'fixture_id.notna()' # 
 
-
-# In[ ]:
-
-
-filter = 'games_position.isin(["M","D"])'
 target = 'team_goals_scored'
-
 col_subset = [['win','games_rating','shots_total','shots_on','goals_total','goals_saves','duels_won']]
 
 cor_dat = fixture_dat.query(filter).corr(numeric_only=True)[[target]]
@@ -657,6 +678,12 @@ find_player(complete_data,player_name="Leoni")
 # In[ ]:
 
 
+auto_reload()
+
+
+# In[ ]:
+
+
 all_defenders_2025 = complete_data[(complete_data.major_position == 'D') & (complete_data.year_e == 2025)]['player_name'].unique()
 all_defenders_2025
 
@@ -664,7 +691,20 @@ all_defenders_2025
 # In[ ]:
 
 
-defenders_compare = compare_players(complete_data,all_defenders_2025,years = [2025],transpose = False)
+defenders_compare = compare_players(complete_data,all_defenders_2025,seasons = ["2024/2025"],transpose = False)
+defenders_compare.head()
+
+
+# In[ ]:
+
+
+defenders_compare.columns
+
+
+# In[ ]:
+
+
+complete_data.head()
 
 
 # In[ ]:

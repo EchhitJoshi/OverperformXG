@@ -32,40 +32,6 @@ config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
 with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
 
-import pandas as pd
-import numpy as np
-from datetime import datetime
-from sklearn.utils import resample
-import category_encoders as ce
-import joblib
-import os
-
-import plotly.express as px
-import plotly.graph_objects as go
-import plotly.io as pio
-pio.templates.default = "plotly"
-from plotly.subplots import make_subplots
-import seaborn as sns
-import matplotlib.pyplot as plt
-import scipy.stats as sc
-import requests
-from pandas.api.types import is_datetime64_any_dtype, is_period_dtype
-
-from data_loader import *
-import folder_manager
-
-
-#Themes and options
-px.defaults.template = 'plotly_dark'
-pd.options.display.max_columns = 200
-sns.set_style("ticks")
-plt.style.use("dark_background")
-
-
-config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
-with open(config_path, 'r') as f:
-    config = yaml.safe_load(f)
-
 home_dir = config['HOME_DIRECTORY']
 headers_api_sport = config["HEADERS_API_SPORT"]
 
