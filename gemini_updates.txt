@@ -1,7 +1,21 @@
 User Task: Create a streamlit app using stuff from main.ipynb (now main.py). The app should be a modern Soccer analytics app, modifiable from a yaml file. Start with player comparison, team ability, and variable correlation tabs. Create a new directory called streamlit for all of these operations.
 
-[Progress] Fixed FileNotFoundError in app/data_loader.py by using an absolute path for config.yaml.\n[Task] Run streamlit app and fix errors.\n[Progress] Fixed KeyError in app/data_loader.py by refactoring the compare_players function.
+[Progress] Fixed FileNotFoundError in app/data_loader.py by using an absolute path for config.yaml.
+[Task] Run streamlit app and fix errors.
+[Progress] Fixed KeyError in app/data_loader.py by refactoring the compare_players function.
 [Progress] Updated Player Comparison tab to use per 90 stats for radar charts and added a bar chart for stat comparison.
 [Progress] Implemented position-based standardization for radar chart stats.
 [Progress] Fixed KeyError by pre-calculating per 90 stats. Changed year multiselect to season.
 [Progress] Implemented percentile-based scaling for radar charts.
+[Task] Make the PyMC model in main.py generic and create a function for it for repeated use in models.py.
+[Progress] Created a generic function `bayesian_team_ability_model` in `app/models.py` to encapsulate the PyMC model.
+[Progress] Updated `app/main.py` to use the new generic function.
+[Task] Create a new model where team ability is opponent-specific.
+[Progress] Created a new function `bayesian_team_ability_model_opponent_specific` in `app/models.py` to model opponent-specific team ability.
+[Task] In the Streamlit app, rename the _percentile named columns into per_90 columns for plots only.
+[Progress] Modified `plot_player_comparison` and `plot_player_stats_bar_chart` in `app/visualizations.py` to accept an optional `category_labels` argument.
+[Progress] Updated `streamlit/app.py` to create and pass cleaned-up labels (removing `_percentile`) to the plotting functions.
+[Progress] Fixed a typo in `streamlit/app.py`.
+[Update] I will add a timestamp to each update in the log file from now on.
+[2025-09-25] [Task] Apply the same display-only column renaming to `streamlit/streamlit.py`.
+[2025-09-25] [Progress] Modified `streamlit/streamlit.py` to create and pass cleaned-up labels (removing `_percentile`) to the plotting functions.

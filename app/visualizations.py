@@ -34,18 +34,22 @@ def plot_team_performance(df, team_name):
     fig = px.bar(df, x='year_e', y='team_goals_scored', title=f'Team Performance for {team_name}')
     return fig
 
-def plot_player_comparison(df, players, categories):
+def plot_player_comparison(df, players, categories, category_labels=None):
     fig = go.Figure()
+
+    if category_labels is None:
+        category_labels = categories
 
     for player in players:
         player_data = df[df['player_name'] == player]
-        values = player_data[categories].values.flatten().tolist()
-        fig.add_trace(go.Scatterpolar(
-            r=values,
-            theta=categories,
-            fill='toself',
-            name=player
-        ))
+        if not player_data.empty:
+            values = player_data[categories].mean().values.flatten().tolist()
+            fig.add_trace(go.Scatterpolar(
+                r=values,
+                theta=category_labels,
+                fill='toself',
+                name=player
+            ))
 
     fig.update_layout(
       polar=dict(
@@ -58,10 +62,21 @@ def plot_player_comparison(df, players, categories):
 
     return fig
 
-def plot_player_stats_bar_chart(df, players, categories):
-    bar_data = df[df['player_name'].isin(players)]
-    bar_data = bar_data.melt(id_vars=['player_name'], value_vars=categories, var_name='stat', value_name='value')
-    fig = px.bar(bar_data, x='stat', y='value', color='player_name', barmode='group')
+def plot_player_stats_bar_chart(df, players, categories, category_labels=None):
+    player_data = df[df['player_name'].isin(players)]
+
+    # Aggregate stats over selected seasons
+    agg_dict = {cat: 'mean' for cat in categories}
+    agg_data = player_data.groupby('player_name').agg(agg_dict).reset_index()
+            
+    bar_data_melted = agg_data.melt(id_vars=['player_name'], value_vars=categories, var_name='stat', value_name='value')
+
+    if category_labels:
+        label_map = dict(zip(categories, category_labels))
+        bar_data_melted['stat'] = bar_data_melted['stat'].map(label_map)
+    
+    fig = px.bar(bar_data_melted, x='value', y='stat', color='player_name', barmode='group', orientation='h', height=1500)
+    
     return fig
 
 # validation metrics

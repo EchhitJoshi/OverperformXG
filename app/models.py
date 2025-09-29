@@ -53,11 +53,10 @@ else:
 if os.uname().machine.lower() == "arm64":
     pytensor.config.cxx = '/usr/bin/clang++'
 
-with open("config.yaml","r") as file:
-    config = yaml.safe_load(file)
-
+config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
+with open(config_path, 'r') as f:
+    config = yaml.safe_load(f)
 home_dir = config['HOME_DIRECTORY']
-
 
 
 def plot_trace(trace):
@@ -81,7 +80,6 @@ def load_last_model(filepath = home_dir + '/models/'):
     trace = az.from_netcdf(filepath + models[0])
     return trace
     
-
 def get_params(algorithm_name,pipeline_key):
     '''algorithm_name: select from [lgbm,xgb,catboost,rf]'''
     if 'lgbm' in algorithm_name:
@@ -119,18 +117,17 @@ def get_params(algorithm_name,pipeline_key):
         }
     elif 'rf' in algorithm_name:
         return {
-            pipeline_key + '__n_estimators': [100, 200, 500],                
-            pipeline_key + '__max_depth': [None, 5, 10, 20, 30],             
-            pipeline_key + '__min_samples_split': [2, 5, 10],                
-            pipeline_key + '__min_samples_leaf': [1, 2, 4],                  
-            pipeline_key + '__max_features': ['sqrt', 'log2', None],         
-            pipeline_key + '__bootstrap': [True, False],                     
-            pipeline_key + '__criterion': ['gini', 'entropy', 'log_loss'],  
-            pipeline_key + '__class_weight': [None, 'balanced'],             
+            pipeline_key + '__n_estimators': [100, 200, 500],
+            pipeline_key + '__max_depth': [None, 5, 10, 20, 30],
+            pipeline_key + '__min_samples_split': [2, 5, 10],
+            pipeline_key + '__min_samples_leaf': [1, 2, 4],
+            pipeline_key + '__max_features': ['sqrt', 'log2', None],
+            pipeline_key + '__bootstrap': [True, False],
+            pipeline_key + '__criterion': ['gini', 'entropy', 'log_loss'],
+            pipeline_key + '__class_weight': [None, 'balanced'],
             pipeline_key + '__class_weight': ['balanced', 'balanced_subsample', None, {0: 1, 1: 5}],
         }
     
-
 
 # Models with feature selection and gridsearch   
 
@@ -311,10 +308,6 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
 
     return best_model
 
-    
-
-
-
 
 def predict_final(model_path, test):
     #Make Copy of test
@@ -425,7 +418,6 @@ def predict_final(model_path, test):
     return final_pred
 
 
-
 def outcome_prediction():
     pass
 
@@ -492,13 +484,18 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
     labels = final_kmeans.fit_predict(dat[target])
     dat[f"{cluster_colname}"] = labels
 
+    cluster_win = dat.groupby(['cluster'],as_index = False).agg(games = ('cluster','size'),win_perc = ('win','mean')).sort_values('win_perc', ascending = False)
+    cluster_win['cluster_rank'] = cluster_win['win_perc'].rank(ascending = False).astype('int')
+    
+    dat = dat.merge(cluster_win,how = 'left',on = 'cluster')
+
     # Save kmeans model:
     joblib.dump(final_kmeans,model_path+"/kmeans/kmeans_model.pkl")
 
     # Suppose your model is called final_kmeans
     centers = final_kmeans.cluster_centers_
 
-    # Optional: give nice column names (same as your features)
+    # Optional: give nice column names (same as your features) 
     col_names = dat[target].columns  
 
     df_centers = pd.DataFrame(centers, columns=col_names)
@@ -524,19 +521,172 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
     plt.legend()
     plt.show()
 
-    
-
 
 
 
     return dat
 
+
+def train_kmeans_and_get_clusters(player_stats_df, n_clusters=50):
+    """
+    Trains a KMeans model for each season on player stats and 
+    returns the dataframe with cluster labels.
+    """
+    features_for_clustering = [col for col in player_stats_df.columns if '_per_90_percentile' in col]
     
+    # Ensure cluster column exists
+    if 'cluster' not in player_stats_df.columns:
+        player_stats_df['cluster'] = -1 # default value
+
+    for season in player_stats_df['season'].unique():
+        season_data_indices = player_stats_df[player_stats_df['season'] == season].index
+        
+        if len(season_data_indices) == 0:
+            continue
+
+        clustering_data = player_stats_df.loc[season_data_indices, features_for_clustering].fillna(0)
+        
+        if clustering_data.empty:
+            continue
+
+        # Adjust n_clusters if less samples than clusters
+        k = min(n_clusters, len(clustering_data))
+        if k <= 1: # Not enough samples to cluster
+            player_stats_df.loc[season_data_indices, 'cluster'] = -1
+            continue
+
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init='auto')
+        clusters = kmeans.fit_predict(clustering_data)
+        
+        player_stats_df.loc[season_data_indices, 'cluster'] = clusters
+
+    return player_stats_df
 
 
+def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcome_col, games_played_col):
+    """
+    This function creates and samples from a Bayesian hierarchical model to estimate team ability.
 
+    Args:
+        data (pd.DataFrame): The input data.
+        team_col (str): The name of the column containing team names.
+        opponent_col (str): The name of the column containing opponent names.
+        season_col (str): The name of the column containing season information.
+        outcome_col (str): The name of the column containing the outcome of the game (wins).
+        games_played_col (str): The name of the column containing the number of games played.
 
+    Returns:
+        trace: The trace of the PyMC model.
+    """
+    season_v = data[season_col]
+    team_v = data[team_col]
+    opps_v = data[opponent_col]
 
+    season_map = {v: i for i, v in enumerate(season_v.unique())}
+    team_map = {v: i for i, v in enumerate(team_v.unique())}
+    opps_map = {v: i for i, v in enumerate(opps_v.unique())}
 
+    season_ix = season_v.map(season_map).values
+    team_ix = team_v.map(team_map).values
+    opps_ix = opps_v.map(opps_map).values
 
+    coords = {
+        "season": data[season_col].unique(),
+        "team": data[team_col].unique(),
+        "opps": data[opponent_col].unique()
+    }
 
+    with pm.Model(coords=coords) as model:
+        # team prior
+        mu_team = pm.Normal("mu_team", 0, 1)
+        sigma_team = pm.HalfNormal("sigma_team", 2)
+
+        # opponent prior
+        mu_opps = pm.Normal("mu_opps", 0, 2)
+        sigma_opps = pm.HalfNormal("sigma_opps", 3)
+
+        # raw parameters
+        theta_raw = pm.Normal("theta_raw", 0, 1, dims=("season", "team"))
+        theta_t = mu_team + theta_raw * sigma_team
+        theta = pm.Deterministic("theta", theta_t - theta_t.mean(axis=1, keepdims=True), dims=("season", "team"))
+
+        beta_raw = pm.Normal("beta_raw", 0, 1, dims=("season", "opps"))
+        beta_t = mu_opps + beta_raw * sigma_opps
+        beta = pm.Deterministic("beta", beta_t - beta_t.mean(axis=1, keepdims=True), dims=("season", "opps"))
+
+        # Logit: team ability - opps ability/difficulty
+        logit = theta[season_ix, team_ix] - beta[season_ix, opps_ix]
+        p = pm.Deterministic("p", pm.math.sigmoid(logit))
+        n = data[games_played_col].values
+
+        # likelihood
+        p_win = pm.Binomial("p_win", n=n, p=p, observed=data[outcome_col].values)
+
+        trace = pm.sample()
+
+    return trace
+
+def bayesian_team_ability_model_opponent_specific(data, team_col, opponent_col, season_col, outcome_col, games_played_col):
+    """
+    This function creates and samples from a Bayesian hierarchical model to estimate team ability,
+    with team ability being opponent-specific.
+
+    Args:
+        data (pd.DataFrame): The input data.
+        team_col (str): The name of the column containing team names.
+        opponent_col (str): The name of the column containing opponent names.
+        season_col (str): The name of the column containing season information.
+        outcome_col (str): The name of the column containing the outcome of the game (wins).
+        games_played_col (str): The name of the column containing the number of games played.
+
+    Returns:
+        trace: The trace of the PyMC model.
+    """
+    season_v = data[season_col]
+    team_v = data[team_col]
+    opps_v = data[opponent_col]
+
+    season_map = {v: i for i, v in enumerate(season_v.unique())}
+    team_map = {v: i for i, v in enumerate(team_v.unique())}
+    opps_map = {v: i for i, v in enumerate(opps_v.unique())}
+
+    season_ix = season_v.map(season_map).values
+    team_ix = team_v.map(team_map).values
+    opps_ix = opps_v.map(opps_map).values
+
+    coords = {
+        "season": data[season_col].unique(),
+        "team": data[team_col].unique(),
+        "opps": data[opponent_col].unique()
+    }
+
+    with pm.Model(coords=coords) as model:
+        # team prior
+        mu_team = pm.Normal("mu_team", 0, 1)
+        sigma_team = pm.HalfNormal("sigma_team", 2)
+
+        # opponent prior
+        mu_opps = pm.Normal("mu_opps", 0, 2)
+        sigma_opps = pm.HalfNormal("sigma_opps", 3)
+
+        # Opponent-specific raw parameters
+        theta_raw = pm.Normal("theta_raw", 0, 1, dims=("season", "team", "opps"))
+        theta_t = mu_team + theta_raw * sigma_team
+        theta = pm.Deterministic("theta", theta_t - theta_t.mean(axis=1, keepdims=True), dims=("season", "team", "opps"))
+
+        beta_raw = pm.Normal("beta_raw", 0, 1, dims=("season", "opps"))
+        beta_t = mu_opps + beta_raw * sigma_opps
+        beta = pm.Deterministic("beta", beta_t - beta_t.mean(axis=1, keepdims=True), dims=("season", "opps"))
+
+        # Logit: team ability - opps ability/difficulty
+        logit = theta[season_ix, team_ix, opps_ix] - beta[season_ix, opps_ix]
+            
+        p = pm.Deterministic("p", pm.math.sigmoid(logit))
+        n = data[games_played_col].values
+
+        # likelihood
+        p_win = pm.Binomial("p_win", n=n, p=p, observed=data[outcome_col].values)
+
+        trace = pm.sample()
+
+    return trace
