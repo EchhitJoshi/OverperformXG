@@ -1,0 +1,30 @@
+name: dlcpu
+channels:
+  - defaults
+  - https://repo.anaconda.com/pkgs/main
+  - https://repo.anaconda.com/pkgs/r
+dependencies:
+  - python=3.10
+  - ipykernel
+  - conda-forge::pymc
+  - anaconda::joblib
+  - scikit-learn==1.6.1
+  - anaconda::yaml
+  - pyyaml
+  - imbalanced-learn==0.13.0
+  - numpy==2.2.5
+  - conda-forge::plotly
+  - conda-forge::lightgbm
+  - conda-forge::xgboost
+  - anaconda::requests
+  - conda-forge::pyarrow
+  - conda-forge::dash
+  - anaconda::nbformat
+  - conda-forge::openai
+  - nodejs
+  - conda-forge::streamlit
+  - notebook
+  - conda-forge::sqlalchemy
+  - anaconda::psycopg2
+  - conda-forge::pymysql
+prefix: /opt/miniconda3/envs/dlcpu

@@ -3,3 +3,5 @@ scount.ipynb
 data
 Ignore_folder
 AWSgemini_updates.txt
+streamlit/streamlit.py
+outputs/
