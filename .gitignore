@@ -7,3 +7,4 @@ env
 outputs/
 file_transfer/
 deployed_models/
+Miniconda3-latest-Linux-aarch64.sh
