@@ -1,6 +1,9 @@
 config.yaml
 scount.ipynb
 data
-Ignore_folder
+/Ignore_folder
 gemini_updates.txt
 env
+/outputs
+/file_transfer
+/deployed_models
