@@ -1,3 +1,5 @@
+This file is what has been done so far, write your new updates here in the same format for every task. 
+
 User Task: Create a streamlit app using stuff from main.ipynb (now main.py). The app should be a modern Soccer analytics app, modifiable from a yaml file. Start with player comparison, team ability, and variable correlation tabs. Create a new directory called streamlit for all of these operations.
 
 [Progress] Fixed FileNotFoundError in app/data_loader.py by using an absolute path for config.yaml.

@@ -2,4 +2,5 @@ config.yaml
 scount.ipynb
 data
 Ignore_folder
-AWSgemini_updates.txt
+gemini_updates.txt
+env

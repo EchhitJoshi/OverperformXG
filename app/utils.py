@@ -568,7 +568,7 @@ def create_submodel(model_name:str):
     submodel_path = home_dir + "/outputs/models/"
     author = "EJ"
     
-    folder_manager.submodel_name = datetime.now().strftime("%d_%H_%M") + "_"+model_name
+    folder_manager.submodel_name = datetime.now().strftime("%d_%H_%M") + "_" + model_name
     
     folder_manager.output_path = submodel_path+folder_manager.submodel_name
     

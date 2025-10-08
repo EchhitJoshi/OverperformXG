@@ -5,12 +5,14 @@ import matplotlib.pyplot as plt
 import pymc as pm
 import arviz as az
 import pytensor
+import xarray as xr
 
 from datetime import datetime, timedelta
 import os
 import glob
 import yaml
 import joblib
+import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor,as_completed
 
@@ -433,83 +435,93 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
     dat: data with target col
     target: column name
     '''
+    dat = dat.copy() # Work on a copy
 
     # Create kmeans directory:
     if not model_path:
         model_path = get_latest_model_folder(home_dir + "/outputs/models")
         
-    if not os.path.exists(model_path+"/kmeans/"):
-        os.mkdir(model_path+"/kmeans/")
+    kmeans_dir = os.path.join(model_path, "kmeans")
+    if not os.path.exists(kmeans_dir):
+        os.makedirs(kmeans_dir)
+
+    # --- IMPORTANT: Sort feature names to ensure consistent order ---
+    target = sorted(target)
 
     if not k:
-        k = range(1,25)
+        k_range = range(1,25)
 
         with ProcessPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(check_elbow,i,dat[target].dropna(axis = 0)): i for i in k}
+            # Use dat[target].dropna() for elbow check as well
+            futures = {executor.submit(check_elbow, i, dat[target].dropna(axis=0)): i for i in k_range}
 
             results = {}
-            for future in futures:
+            for future in as_completed(futures):
                 k_val = futures[future]
-                kmeans_val = future.result()
-                results[k_val] = kmeans_val.inertia_        
+                try:
+                    kmeans_val = future.result()
+                    results[k_val] = kmeans_val.inertia_
+                except Exception as e:
+                    print(f"Error checking elbow for k={k_val}: {e}")
 
         ks = sorted(results.keys())
         inertias = [results[k] for k in ks]
         
-        first_deriv = np.diff(inertias)/np.diff(ks)
-        second_deriv = np.diff(first_deriv)
+        if len(inertias) > 2:
+            first_deriv = np.diff(inertias)/np.diff(ks)
+            second_deriv = np.diff(first_deriv)
+            elbow_idx = np.argmin(np.abs(second_deriv)) + 1
+            elbow_k = ks[elbow_idx]
+            print(f"Elbow method suggests k = {elbow_k}")
+            k = elbow_k
+        else:
+            print("Not enough data points to determine elbow, defaulting to k=10")
+            k = 10
 
-        elbow_idx = np.argmin(np.abs(second_deriv)) + 1
-        elbow_k = ks[elbow_idx]
-
-        print(f"lowest inertia value change: {elbow_k}")
-
-
+        # Plotting
         plt.plot(ks, inertias, marker='o')
-        plt.axhline(y = inertias[elbow_k - 1],
-                    color = 'r',
-                    linestyle = '--',
-                    label = f'Elbow at k = {elbow_k}')
+        if 'elbow_k' in locals():
+             plt.axvline(x = elbow_k, color = 'r', linestyle = '--', label = f'Elbow at k = {elbow_k}')
         plt.xlabel('Number of clusters k')
         plt.ylabel('Inertia (WCSS)')
         plt.title('Elbow Curve')
+        plt.legend()
         plt.show()
 
-        k = elbow_k
 
-
-    final_kmeans = KMeans(k,random_state=33)
-    print(f"dropping {dat.shape[0] - dat.dropna().shape[0]} players due to nulls! ")
-    dat.dropna(axis = 0,inplace = True)
-    labels = final_kmeans.fit_predict(dat[target])
-    dat[f"{cluster_colname}"] = labels
-
-    cluster_win = dat.groupby(['cluster'],as_index = False).agg(games = ('cluster','size'),win_perc = ('win','mean')).sort_values('win_perc', ascending = False)
-    cluster_win['cluster_rank'] = cluster_win['win_perc'].rank(ascending = False).astype('int')
+    final_kmeans = KMeans(n_clusters=k, random_state=33, n_init='auto')
     
-    dat = dat.merge(cluster_win,how = 'left',on = 'cluster')
+    dat_for_clustering = dat[target].dropna()
+    print(f"Dropping {dat.shape[0] - dat_for_clustering.shape[0]} rows due to nulls!")
+    
+    labels = final_kmeans.fit_predict(dat_for_clustering)
+    dat.loc[dat_for_clustering.index, f"{cluster_colname}"] = labels
 
-    # Save kmeans model:
-    joblib.dump(final_kmeans,model_path+"/kmeans/kmeans_model.pkl")
+    if 'win' in dat.columns:
+        cluster_win = dat.groupby(['cluster'],as_index = False).agg(games = ('cluster','size'),win_perc = ('win','mean')).sort_values('win_perc', ascending = False)
+        cluster_win['cluster_rank'] = cluster_win['win_perc'].rank(ascending = False).astype('int')
+        dat = dat.merge(cluster_win,how = 'left',on = 'cluster')
 
-    # Suppose your model is called final_kmeans
+    # --- Save the model and the feature list ---
+    joblib.dump(final_kmeans, os.path.join(kmeans_dir, "kmeans_model.pkl"))
+    joblib.dump(target, os.path.join(kmeans_dir, "kmeans_features.pkl"))
+
     centers = final_kmeans.cluster_centers_
-
-    # Optional: give nice column names (same as your features) 
-    col_names = dat[target].columns  
-
+    col_names = dat_for_clustering.columns
     df_centers = pd.DataFrame(centers, columns=col_names)
-    df_centers.to_csv(model_path+"/kmeans" + "cluster_centers.csv", index=False)
+    
+    # --- Save cluster centers at the root of the model path ---
+    df_centers.to_csv(os.path.join(model_path, "kmeanscluster_centers.csv"), index=False)
 
 
     from sklearn.decomposition import PCA
     # Reduce dimensions for plotting
-    X_reduced = PCA(n_components=2).fit_transform(dat[target])
+    X_reduced = PCA(n_components=2).fit_transform(dat_for_clustering)
 
     # Reduce cluster centers into PCA space as well
     
     pca = PCA(n_components=2)
-    X_reduced = pca.fit_transform(dat[target])
+    X_reduced = pca.fit_transform(dat_for_clustering)
     centers_reduced = pca.transform(final_kmeans.cluster_centers_)
 
     # Cluster plots
@@ -563,9 +575,10 @@ def train_kmeans_and_get_clusters(player_stats_df, n_clusters=50):
     return player_stats_df
 
 
-def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcome_col, games_played_col):
+def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcome_col, games_played_col, output_path=None, save_strategy='summary', thinning_factor=10):
     """
     This function creates and samples from a Bayesian hierarchical model to estimate team ability.
+    It saves the model summary or a thinned trace and mappings for later use.
 
     Args:
         data (pd.DataFrame): The input data.
@@ -574,26 +587,45 @@ def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcom
         season_col (str): The name of the column containing season information.
         outcome_col (str): The name of the column containing the outcome of the game (wins).
         games_played_col (str): The name of the column containing the number of games played.
+        output_path (str, optional): Path to save the model artifacts and mappings. Defaults to None.
+        save_strategy (str, optional): The strategy for saving model artifacts. One of ['thin', 'summary']. Defaults to 'summary'.
+        thinning_factor (int, optional): The factor by which to thin the trace if save_strategy is 'thin'. Defaults to 10.
 
     Returns:
         trace: The trace of the PyMC model.
     """
+    if data.empty:
+        raise ValueError("Input data is empty. Cannot build the Bayesian model.")
+
+    # Clean data before processing
+    required_cols = [team_col, opponent_col, season_col, outcome_col, games_played_col]
+    data = data.dropna(subset=required_cols).copy()
+
+    if data.empty:
+        raise ValueError("Input data is empty after dropping rows with missing values in required columns.")
+
+    # Ensure correct dtypes for binomial likelihood
+    data[outcome_col] = data[outcome_col].astype(int)
+    data[games_played_col] = data[games_played_col].astype(int)
+
     season_v = data[season_col]
-    team_v = data[team_col]
-    opps_v = data[opponent_col]
+    team_v = data[team_col].astype(str)
+    opps_v = data[opponent_col].astype(str)
+
+    # Consolidate all teams from both columns
+    all_teams = np.union1d(team_v.unique(), opps_v.unique())
 
     season_map = {v: i for i, v in enumerate(season_v.unique())}
-    team_map = {v: i for i, v in enumerate(team_v.unique())}
-    opps_map = {v: i for i, v in enumerate(opps_v.unique())}
+    team_map = {v: i for i, v in enumerate(all_teams)}
 
     season_ix = season_v.map(season_map).values
     team_ix = team_v.map(team_map).values
-    opps_ix = opps_v.map(opps_map).values
+    opps_ix = opps_v.map(team_map).values
 
     coords = {
-        "season": data[season_col].unique(),
-        "team": data[team_col].unique(),
-        "opps": data[opponent_col].unique()
+        "season": list(season_map.keys()),
+        "team": list(team_map.keys()),
+        "opps": list(team_map.keys())  # Use all teams for opponents as well
     }
 
     with pm.Model(coords=coords) as model:
@@ -605,7 +637,7 @@ def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcom
         mu_opps = pm.Normal("mu_opps", 0, 2)
         sigma_opps = pm.HalfNormal("sigma_opps", 3)
 
-        # raw parameters
+        # Team ability (not opponent-specific)
         theta_raw = pm.Normal("theta_raw", 0, 1, dims=("season", "team"))
         theta_t = mu_team + theta_raw * sigma_team
         theta = pm.Deterministic("theta", theta_t - theta_t.mean(axis=1, keepdims=True), dims=("season", "team"))
@@ -616,70 +648,6 @@ def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcom
 
         # Logit: team ability - opps ability/difficulty
         logit = theta[season_ix, team_ix] - beta[season_ix, opps_ix]
-        p = pm.Deterministic("p", pm.math.sigmoid(logit))
-        n = data[games_played_col].values
-
-        # likelihood
-        p_win = pm.Binomial("p_win", n=n, p=p, observed=data[outcome_col].values)
-
-        trace = pm.sample()
-
-    return trace
-
-def bayesian_team_ability_model_opponent_specific(data, team_col, opponent_col, season_col, outcome_col, games_played_col):
-    """
-    This function creates and samples from a Bayesian hierarchical model to estimate team ability,
-    with team ability being opponent-specific.
-
-    Args:
-        data (pd.DataFrame): The input data.
-        team_col (str): The name of the column containing team names.
-        opponent_col (str): The name of the column containing opponent names.
-        season_col (str): The name of the column containing season information.
-        outcome_col (str): The name of the column containing the outcome of the game (wins).
-        games_played_col (str): The name of the column containing the number of games played.
-
-    Returns:
-        trace: The trace of the PyMC model.
-    """
-    season_v = data[season_col]
-    team_v = data[team_col]
-    opps_v = data[opponent_col]
-
-    season_map = {v: i for i, v in enumerate(season_v.unique())}
-    team_map = {v: i for i, v in enumerate(team_v.unique())}
-    opps_map = {v: i for i, v in enumerate(opps_v.unique())}
-
-    season_ix = season_v.map(season_map).values
-    team_ix = team_v.map(team_map).values
-    opps_ix = opps_v.map(opps_map).values
-
-    coords = {
-        "season": data[season_col].unique(),
-        "team": data[team_col].unique(),
-        "opps": data[opponent_col].unique()
-    }
-
-    with pm.Model(coords=coords) as model:
-        # team prior
-        mu_team = pm.Normal("mu_team", 0, 1)
-        sigma_team = pm.HalfNormal("sigma_team", 2)
-
-        # opponent prior
-        mu_opps = pm.Normal("mu_opps", 0, 2)
-        sigma_opps = pm.HalfNormal("sigma_opps", 3)
-
-        # Opponent-specific raw parameters
-        theta_raw = pm.Normal("theta_raw", 0, 1, dims=("season", "team", "opps"))
-        theta_t = mu_team + theta_raw * sigma_team
-        theta = pm.Deterministic("theta", theta_t - theta_t.mean(axis=1, keepdims=True), dims=("season", "team", "opps"))
-
-        beta_raw = pm.Normal("beta_raw", 0, 1, dims=("season", "opps"))
-        beta_t = mu_opps + beta_raw * sigma_opps
-        beta = pm.Deterministic("beta", beta_t - beta_t.mean(axis=1, keepdims=True), dims=("season", "opps"))
-
-        # Logit: team ability - opps ability/difficulty
-        logit = theta[season_ix, team_ix, opps_ix] - beta[season_ix, opps_ix]
             
         p = pm.Deterministic("p", pm.math.sigmoid(logit))
         n = data[games_played_col].values
@@ -687,6 +655,125 @@ def bayesian_team_ability_model_opponent_specific(data, team_col, opponent_col, 
         # likelihood
         p_win = pm.Binomial("p_win", n=n, p=p, observed=data[outcome_col].values)
 
-        trace = pm.sample()
+        trace = pm.sample(cores=1)
+
+        if output_path:
+            if not os.path.exists(output_path):
+                os.makedirs(output_path)
+
+            if save_strategy == 'thin':
+                thinned_trace = trace.sel(draw=slice(None, None, thinning_factor))
+                thinned_trace.to_netcdf(os.path.join(output_path, "bayesian_model_trace.nc"))
+            elif save_strategy == 'summary':
+                theta_mean = trace.posterior['theta'].mean(dim=('chain', 'draw'))
+                theta_sd = trace.posterior['theta'].std(dim=('chain', 'draw'))
+                beta_mean = trace.posterior['beta'].mean(dim=('chain', 'draw'))
+                beta_sd = trace.posterior['beta'].std(dim=('chain', 'draw'))
+
+                theta_mean.to_netcdf(os.path.join(output_path, "bayesian_theta_mean.nc"))
+                theta_sd.to_netcdf(os.path.join(output_path, "bayesian_theta_sd.nc"))
+                beta_mean.to_netcdf(os.path.join(output_path, "bayesian_beta_mean.nc"))
+                beta_sd.to_netcdf(os.path.join(output_path, "bayesian_beta_sd.nc"))
+
+            # Save metadata and mappings
+            meta = {'strategy': save_strategy}
+            with open(os.path.join(output_path, 'bayesian_model_meta.json'), 'w') as f:
+                json.dump(meta, f)
+            
+            mappings = {'season_map': season_map, 'team_map': team_map}
+            joblib.dump(mappings, os.path.join(output_path, "bayesian_model_mappings.pkl"))
 
     return trace
+
+def predict_bayesian_team_ability(new_data, model_path, team_col, opponent_col, season_col):
+    """
+    Makes predictions using a trained Bayesian team ability model.
+
+    Args:
+        new_data (pd.DataFrame): New data for prediction. Must contain team_col, opponent_col, and season_col.
+        model_path (str): Path to the saved model artifacts (trace or summary) and mappings.
+        team_col (str): The name of the column containing team names.
+        opponent_col (str): The name of the column containing opponent names.
+        season_col (str): The name of the column containing season information.
+
+    Returns:
+        pd.DataFrame: The new_data dataframe with added columns for predicted win probability.
+    """
+    # 1. Load mappings and determine strategy
+    mappings = joblib.load(os.path.join(model_path, "bayesian_model_mappings.pkl"))
+    season_map = mappings['season_map']
+    team_map = mappings['team_map']
+
+    meta_path = os.path.join(model_path, "bayesian_model_meta.json")
+    strategy = 'thin' # Default for older models
+    if os.path.exists(meta_path):
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        strategy = meta.get('strategy', 'thin')
+
+    # 2. Preprocess new_data
+    new_data = new_data.copy()
+    for team in pd.concat([new_data[team_col].astype(str), new_data[opponent_col].astype(str)]).unique():
+        if team not in team_map:
+            raise ValueError(f"Team '{team}' not found in training data. Cannot make prediction.")
+    for season in new_data[season_col].unique():
+        if season not in season_map:
+            raise ValueError(f"Season '{season}' not found in training data. Cannot make prediction.")
+
+    # 3. Make predictions based on strategy
+    if strategy == 'thin':
+        trace = az.from_netcdf(os.path.join(model_path, "bayesian_model_trace.nc"))
+        season_ix = new_data[season_col].map(season_map).values
+        team_ix = new_data[team_col].astype(str).map(team_map).values
+        opps_ix = new_data[opponent_col].astype(str).map(team_map).values
+
+        theta_posterior = trace.posterior['theta']
+        beta_posterior = trace.posterior['beta']
+
+        results = []
+        for i in range(len(new_data)):
+            s_ix, t_ix, o_ix = season_ix[i], team_ix[i], opps_ix[i]
+            theta_s = theta_posterior.isel(season=s_ix, team=t_ix)
+            beta_s = beta_posterior.isel(season=s_ix, opps=o_ix)
+            logit_s = theta_s - beta_s
+            prob_s = 1 / (1 + np.exp(-logit_s.values))
+            mean_prob = prob_s.mean()
+            hdi = az.hdi(prob_s, hdi_prob=0.94)
+            results.append({
+                'predicted_win_prob_mean': mean_prob,
+                'predicted_win_prob_hdi_3%': hdi[0],
+                'predicted_win_prob_hdi_97%': hdi[1]
+            })
+        predictions_df = pd.DataFrame(results)
+        new_data = pd.concat([new_data.reset_index(drop=True), predictions_df], axis=1)
+
+    elif strategy == 'summary':
+        theta_mean = xr.open_dataarray(os.path.join(model_path, "bayesian_theta_mean.nc"))
+        theta_sd = xr.open_dataarray(os.path.join(model_path, "bayesian_theta_sd.nc"))
+        beta_mean = xr.open_dataarray(os.path.join(model_path, "bayesian_beta_mean.nc"))
+        beta_sd = xr.open_dataarray(os.path.join(model_path, "bayesian_beta_sd.nc"))
+
+        season_da = xr.DataArray(new_data[season_col].values, dims="match")
+        team_da = xr.DataArray(new_data[team_col].astype(str).values, dims="match")
+        opps_da = xr.DataArray(new_data[opponent_col].astype(str).values, dims="match")
+
+        theta_mean_vals = theta_mean.sel(season=season_da, team=team_da)
+        theta_sd_vals = theta_sd.sel(season=season_da, team=team_da)
+        beta_mean_vals = beta_mean.sel(season=season_da, opps=opps_da)
+        beta_sd_vals = beta_sd.sel(season=season_da, opps=opps_da)
+
+        n_samples = 400
+        theta_samples = np.random.normal(theta_mean_vals.values, theta_sd_vals.values, size=(n_samples, len(new_data)))
+        beta_samples = np.random.normal(beta_mean_vals.values, beta_sd_vals.values, size=(n_samples, len(new_data)))
+
+        logit_samples = theta_samples - beta_samples
+        prob_samples = 1 / (1 + np.exp(-logit_samples))
+
+        mean_probs = prob_samples.mean(axis=0)
+        hdi_probs = az.hdi(prob_samples, hdi_prob=0.94)
+
+        new_data['predicted_win_prob_mean'] = mean_probs
+        new_data['predicted_win_prob_hdi_3%'] = hdi_probs[:, 0]
+        new_data['predicted_win_prob_hdi_97%'] = hdi_probs[:, 1]
+
+    return new_data

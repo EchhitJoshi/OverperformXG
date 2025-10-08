@@ -109,7 +109,10 @@ def read_fixtures_for_season(team,season,sleep_time = 2):
         time.sleep(sleep_time)
         if fixture in home_fixtures:
             #process for home
-            fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            try:
+                fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            except:
+                continue
             fixture_dat_expanded['fixture_id'] = fixture
             fixture_dat_expanded['team_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] 
             fixture_dat_expanded['team_non_penalty_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_home'].fillna(0).values[0]
@@ -121,7 +124,10 @@ def read_fixtures_for_season(team,season,sleep_time = 2):
             
         else:
             #process for away
-            fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            try:
+                fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            except:
+                continue
             fixture_dat_expanded['fixture_id'] = fixture
             fixture_dat_expanded['team_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] 
             fixture_dat_expanded['team_non_penalty_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_away'].fillna(0).values[0]
