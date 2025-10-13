@@ -538,6 +538,40 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
 
     return dat
 
+def predict_kmeans(dat,model_path):
+    """
+    dat: pd.DataFrame to predict on 
+    model_path : path to model with kmeans folder
+    """
+    if os.path.exists(model_path):
+        kmeans_model_path = os.path.join(model_path,"kmeans","kmeans_model.pkl")
+        kmeans_features_path = os.path.join(model_path,"kmeans","kmeans_features.pkl")
+        
+        
+        
+        if not os.path.exists(kmeans_features_path):
+                # Fallback for older models that don't have saved features
+                print("Warning: kmeans_features.pkl not found. Using a hardcoded list of features. This may lead to errors if the model was trained with a different feature set.")
+                kmeans_cols = sorted(['games_rating', 'shots_total', 'shots_on', 'passes_total', 'passes_key', 'passes_accurate', 'duels_total', 'duels_won', 'fouls_drawn', 'cards_yellow', 'tackles_interceptions', 'tackles_blocks', 'dribble_success_rate', 'dribbles_past', 'target_shot_conversion_perc', 'duels_won_perc', 'pass_accuracy_perc', 'fouls_committed', 'penalty_won', 'penalty_commited'])
+        else:
+                kmeans_cols = joblib.load(kmeans_features_path)
+
+        kmeans_model = joblib.load(kmeans_model_path)
+
+        dat.dropna(subset=kmeans_cols, inplace=True)
+        
+        # Ensure columns are in the correct order
+        kmeans_dat = dat[kmeans_cols]
+        
+        labels = kmeans_model.predict(kmeans_dat)
+        dat['cluster'] = labels
+
+        cluster_win = dat.groupby('cluster')['win'].mean().reset_index(name='win_perc')
+        cluster_win['cluster_rank'] = cluster_win['win_perc'].rank(ascending=False).astype(int)
+        
+        dat = dat.merge(cluster_win[['cluster', 'cluster_rank']], on='cluster')    
+        
+    return dat
 
 def train_kmeans_and_get_clusters(player_stats_df, n_clusters=50):
     """

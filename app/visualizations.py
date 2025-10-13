@@ -165,3 +165,7 @@ def plot_continuous_trend(dat,x,y):
     fig.show()
 
     return fig
+
+
+def plot_x_y_relation():
+    pass

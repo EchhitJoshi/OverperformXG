@@ -1,0 +1,35 @@
+menu_items:
+  - title: Player Comparison
+    subitems:
+      - type: header
+        content: Compare player statistics
+      - type: player_selector
+        label: Select players to compare
+        key: player_comparison_players
+      - type: chart
+        chart_type: bar
+        title: Player Stats Comparison
+  - title: Team Ability
+    subitems:
+      - type: header
+        content: Team Strengths and Opponent Analysis
+      - type: team_selector
+        label: Select a team
+        key: team_ability_team
+      - type: chart
+        chart_type: radar
+        title: Team Ability Radar
+  - title: Variable Correlation
+    subitems:
+      - type: header
+        content: Explore correlations between different variables
+      - type: variable_selector
+        label: Select variables to correlate
+        key: variable_correlation_vars
+      - type: chart
+        chart_type: heatmap
+        title: Correlation Heatmap
+
+
+
+deployed_model: 01_23_04_llm_new

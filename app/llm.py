@@ -425,20 +425,20 @@ def plot_from_llm(dat,question:str):
     loop_condition = True
     i = 0
     while loop_condition:
-        try:
-            print(f"Trying model {model[i]}")
-            response = client.chat.completions.create(
-                model = model[i],
-                messages = [
-                    {'role':'system','content':system_prompt},
-                    {'role':'user','content':user_prompt},
-                ]
-            )
+    # try:
+        print(f"Trying model {model[i]}")
+        response = client.chat.completions.create(
+            model = model[i],
+            messages = [
+                {'role':'system','content':system_prompt},
+                {'role':'user','content':user_prompt},
+            ]
+        )
+        loop_condition = False
+    # except:
+        i += 1
+        if i > len(model):
             loop_condition = False
-        except:
-            i += 1
-            if i > len(model):
-                loop_condition = False
 
 
     
