@@ -28,4 +28,4 @@ This repository explores soccer match data to extract meaningful insights such a
 ## Current Dashboard:
 https://huggingface.co/spaces/ejoshi1/ZoneTwoAndHalf?logs=container
 
-**Please note that this is an ongoing project so dashboard is not up to date with latest fixtures/dates
+**Please note that this is an ongoing project so dashboard is possibly not up to date with latest fixtures/dates
