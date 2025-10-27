@@ -719,6 +719,44 @@ def bayesian_team_ability_model(data, team_col, opponent_col, season_col, outcom
 
     return trace
 
+
+def fit_gmm(dat,columns,n_components,colname = 'gmm_cluster',find_optimal = False,model_path = None):
+
+    from sklearn.mixture import GaussianMixture
+
+    train_dat = dat[columns].copy()
+    min_aic_n_comps = 0
+    min_bic_n_comps = 0
+    if find_optimal:
+        
+        bic = {}
+        aic = {}
+        for n_comp in range(1,51):
+            gmm = GaussianMixture(n_components = n_comp,random_state = 32).fit[train_dat]
+            bic[n_comp] = gmm.bic(train_dat)
+            aic[n_comp] = gmm.aic(train_dat)
+        
+        bic = pd.DataFrame(bic,columns = ['n_comps','bic'])
+        aic = pd.DataFrame(aic,columns = ['n_comps','aic'])
+
+        min_bic_n_comps = bic[bic.bic == bic.bic.min()]
+        min_aic_n_comps = aic[aic.aic == aic.aic.min()]
+
+        n_components = min_bic_n_comps if np.random.randint(2) == 0 else min_aic_n_comps
+
+    
+    gmm = GaussianMixture(n_components = n_components,random_state = 32)
+    train_dat[colname] = gmm.fit_predict(train_dat)
+
+    return train_dat[['fixture_id',colname]]
+    
+
+            
+
+    
+
+
+
 def predict_bayesian_team_ability(new_data, model_path, team_col, opponent_col, season_col):
     """
     Makes predictions using a trained Bayesian team ability model.
