@@ -88,6 +88,7 @@ def discrete_evaluations(actual,pred,pred_proba=None,type = "test",classificatio
     # Plots:
     # Confusion Matrix
     if 'test' in type:
+        print("Test Set Evaluations")
         cm = confusion_matrix(actual,pred)
 
         outcomes = []
@@ -102,13 +103,16 @@ def discrete_evaluations(actual,pred,pred_proba=None,type = "test",classificatio
                 outcomes.append('FN')
 
         # Combine into a DataFrame for easy inspection
+        print(f"shape check: {actual.shape}, {pred.shape}, {pred_proba.shape}")
         outcomes_df = pd.DataFrame({'actual_class': actual, 'predicted_class': pred, 'predicted_probability':pred_proba,'outcome': outcomes})
 
         print(outcomes_df.head())
+        print("Plotting Confusion Matrix")
         plot_confusion_matrix(cm)
 
         # ROC Curve
         fpr, tpr, thresholds_roc = roc_curve(actual, pred_proba)
+        print("Plotting ROC curve")
         plot_roc(fpr,tpr,thresholds_roc,roc_score)
 
 

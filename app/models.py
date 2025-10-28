@@ -165,7 +165,7 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
         cb = CatBoostClassifier(
                                 loss_function='Logloss', 
                                 eval_metric='AUC', 
-                                random_seed=42, 
+                                random_seed=42,
                                 verbose=10,
                                 class_weights=[1,2])  #Testing Class weights
         
@@ -279,8 +279,14 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
         feat_imp_df = pd.DataFrame({
             'feature_names': feature_names,
             'feature_importance': importances
-        }).sort_values(by='feature_importance', ascending=False)
-    plot_feature_importance(feat_imp_df)
+        }).sort_values(by='feature_importance', ascending=True)
+    #print(feat_imp_df)
+    print("Feature Importance")
+    fig = plot_feature_importance(feat_imp_df)
+    fig.show()
+    plot_path = os.path.join(output_path, "feature_importance.html")
+    fig.write_html(plot_path)
+    print(f"Feature importance plot saved to {plot_path}")
 
     # Training Metrics
     train_pred = best_model.predict(train_X)
@@ -293,6 +299,8 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
     pred_proba = best_model.predict_proba(test_X)[:,1]
     print(pred_proba)
 
+
+    print(f"shape check: ",test_y[1:5],pred[1:5],pred_proba[1:5])
     discrete_evaluations(test_y,pred,pred_proba,'test',classification_type="binomial",model_path= output_path)
 
     thres_new = tune_prob_threshold(test_y,pred_proba)
@@ -302,6 +310,7 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
     thres_df = pd.DataFrame(list(thres_new.items()), columns=['threshold', 'value'])
     pd.DataFrame(thres_df).to_csv(output_path+"/thresholds.csv",index = False)
 
+    print(f"shape check: ",test_y[1:5],pred_new[1:5],pred_proba[1:5])
     print("\n Evaluations after probability threshold tuning: ")
     discrete_evaluations(test_y,pred_new,pred_proba,'test_parameter_tuned',classification_type="binomial",model_path=output_path)
 
