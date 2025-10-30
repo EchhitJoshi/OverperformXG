@@ -458,7 +458,7 @@ def calculate_fixture_stats(dat,group_cols = []):
     merged_data = merged_data.sort_values(by=['team', 'fixture_date'])
     for window in [3,5]:
         for result in ['win','draw','loss']:
-            merged_data[f'l{window}_{result}'] = merged_data.groupby('team')[result].transform(lambda s: s.rolling(window, min_periods = 1).sum().shift(1))
+            merged_data[f'l{window}_{result}'] = merged_data.groupby(['team']+group_cols)[result].transform(lambda s: s.rolling(window, min_periods = 1).sum().shift(1))
 
     return merged_data[merged_data.week_e.notna()]
 
