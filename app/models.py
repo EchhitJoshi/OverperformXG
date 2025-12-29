@@ -17,7 +17,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor,ProcessPoolExecutor,as_completed
 
 from visualizations import *
-from validations import discrete_evaluations, check_feature_importance, tune_prob_threshold
+from validations import discrete_evaluations, check_feature_importance, tune_prob_threshold, continuous_evaluations
 from reports import *
 from utils import *
 
@@ -25,13 +25,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.feature_selection import SelectFromModel
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.linear_model import LogisticRegressionCV
-from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV, KFold
+from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV, KFold, train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.cluster import KMeans
 
 
-from imblearn.pipeline import Pipeline as ImbPipeline
-from imblearn.over_sampling import SMOTE #I dont usually prefer this but trying it out
 
 #Classifiers
 from catboost import CatBoostClassifier, CatBoostRegressor, Pool
@@ -60,6 +58,11 @@ with open(config_path, 'r') as f:
     config = yaml.safe_load(f)
 home_dir = config['HOME_DIRECTORY']
 
+
+px.defaults.template = 'plotly_dark'
+pd.options.display.max_columns = 200
+sns.set_style("ticks")
+plt.style.use("dark_background")
 
 def plot_trace(trace):
     pm.plot_trace(trace,figsize = (15,8),legend = True)
@@ -168,141 +171,160 @@ def get_params(algorithm_name, pipeline_key, problem_type='classification'):
 
 # Models with feature selection and gridsearch   
 
-def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,output_path, problem_type=None):
-
+def run_model_with_fs_tune(train_X, test_X, train_y, test_y, dat_dict, algorithm, output_path, problem_type=None):
+    """
+    Runs a model with feature selection and hyperparameter tuning.
+    """
     # Create Copies to work within the function
     train_X = train_X.copy()
     test_X = test_X.copy()
+    original_train_X_cols = train_X.columns
 
     # Infer problem type if not specified
     if problem_type is None:
-        if pd.api.types.is_float_dtype(train_y) or (pd.Series(train_y).nunique() > 20 and pd.api.types.is_numeric_dtype(train_y)):
-            problem_type = 'regression'
-        else:
-            problem_type = 'classification'
+        problem_type = 'regression' if pd.api.types.is_float_dtype(train_y) or \
+                                      (pd.Series(train_y).nunique() > 20 and pd.api.types.is_numeric_dtype(train_y)) \
+                                   else 'classification'
     print(f"Inferred problem type: {problem_type}")
 
     categorical_features = dat_dict[(dat_dict['type'] == 'categorical') & (dat_dict['modeling_feature'] == 1)]['feature'].values
-    categorical_features_indices = train_X.columns.get_indexer(categorical_features)
-    categorical_features_indices = categorical_features_indices[categorical_features_indices !=-1]
+
+    # --- Data Preprocessing for Feature Selection ---
+    train_X_encoded_fs = train_X.copy()
     
+    ordinal_encodings = {}
+    for col in categorical_features:
+        if col in train_X_encoded_fs.columns:
+            print(f"Encoding feature {col} for feature selection")
+            oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+            train_X_encoded_fs[col] = oe.fit_transform(train_X_encoded_fs[[col]])
+            ordinal_encodings[col] = oe
+
+    # --- Generic Feature Selection ---
+    X_fs_train, _, y_fs_train, _ = train_test_split(
+        train_X_encoded_fs, train_y, test_size=0.3, random_state=42,
+        stratify=train_y if problem_type == 'classification' else None
+    )
+
+    if problem_type == 'classification':
+        feature_selector_estimator = RandomForestClassifier(n_estimators=100, max_depth=7, random_state=33)
+    else:  # regression
+        feature_selector_estimator = RandomForestRegressor(n_estimators=100, max_depth=7, random_state=33)
+
+    feature_selector = SelectFromModel(estimator=feature_selector_estimator, threshold='median').fit(X_fs_train, y_fs_train)
+    
+    mask = feature_selector.get_support()
+    selected_features = original_train_X_cols[mask]
+    print(f"Selected {len(selected_features)} features: {selected_features.tolist()}")
+
+    # --- Prepare Data for Model Training ---
+    train_X_prepared = train_X[selected_features]
+    test_X_prepared = test_X[selected_features]
+
     if algorithm == 'catboost':
-        print("algorithm used is catboost")
-        for col_idx in categorical_features_indices:
-            col_name = train_X.columns[col_idx]
-            train_X[col_name] = train_X[col_name].replace(np.nan, 'NaN_string').astype(str)
-            test_X[col_name] = test_X[col_name].replace(np.nan, 'NaN_string').astype(str)
-
-        if problem_type == 'classification':
-            model = CatBoostClassifier(
-                loss_function='Logloss', 
-                eval_metric='AUC', 
-                random_seed=42,
-                verbose=10,
-                class_weights=[1,2]
-            )
-            scoring = 'roc_auc'
-            cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-            param_grid = get_params(algorithm, None, problem_type)
-        else: # regression
-            model = CatBoostRegressor(
-                loss_function='RMSE', 
-                eval_metric='RMSE', 
-                random_seed=42,
-                verbose=10
-            )
-            scoring = 'neg_mean_squared_error'
-            cv = KFold(n_splits=5, shuffle=True, random_state=42)
-            param_grid = get_params(algorithm, None, problem_type)
-
-        search = RandomizedSearchCV(
-            estimator=model,
-            param_distributions=param_grid,
-            scoring=scoring,
-            n_iter=30,
-            cv=cv,
-            verbose=2,
-            random_state=42,
-            n_jobs=-1
-        )
-        search.fit(train_X,train_y,cat_features = categorical_features_indices,early_stopping_rounds = 150, eval_set = (test_X,test_y))
-        
+        print("Algorithm is CatBoost, using original data with selected features")
+        for col in categorical_features:
+            if col in train_X_prepared.columns:
+                train_X_prepared[col] = train_X_prepared[col].replace(np.nan, 'NaN_string').astype(str)
+                test_X_prepared[col] = test_X_prepared[col].replace(np.nan, 'NaN_string').astype(str)
     else:
-        ordinal_encodings = dict()
-        for col in train_X.columns:
-            if col in categorical_features:
-                print(f"encoding feature {col}")
-                oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value= -1)
-                train_X[col] = oe.fit_transform(train_X[[col]])
-                test_X[col] = oe.transform(test_X[[col]])
-                ordinal_encodings[col] = oe
-                joblib.dump(oe,output_path+f'/encodings/{col}_categorical_encodings.pkl')
+        print(f"Algorithm is {algorithm}, using ordinally encoded data with selected features")
+        train_X_prepared = train_X_encoded_fs[selected_features]
+        
+        # We also need to encode the test set for other algorithms
+        test_X_encoded = test_X.copy()
+        for col, oe in ordinal_encodings.items():
+            if col in test_X_encoded.columns:
+                 test_X_encoded[col] = oe.transform(test_X_encoded[[col]])
+        test_X_prepared = test_X_encoded[selected_features]
+        
+        # Save encoders
+        for col, oe in ordinal_encodings.items():
+            joblib.dump(oe, output_path + f'/encodings/{col}_categorical_encodings.pkl')
 
-        classifier_model_pipeline_key = 'model'
-        if problem_type == 'classification':
-            feature_selector_estimator = RandomForestClassifier(n_estimators=100, max_depth=7, random_state=33)
-            if algorithm == 'lgbm':
-                final_model = LGBMClassifier(random_state=33, n_jobs=6)
-            elif algorithm == 'xgb':
-                final_model = XGBClassifier(random_state=33, n_jobs=6)
-            elif algorithm == 'rf':
-                final_model = RandomForestClassifier(random_state=33,n_jobs=6)
-            cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=33)
-            scoring = 'roc_auc'
-        else: # regression
-            feature_selector_estimator = RandomForestRegressor(n_estimators=100, max_depth=7, random_state=33)
-            if algorithm == 'lgbm':
-                final_model = LGBMRegressor(random_state=33, n_jobs=6)
-            elif algorithm == 'xgb':
-                final_model = XGBRegressor(random_state=33, n_jobs=6)
-            elif algorithm == 'rf':
-                final_model = RandomForestRegressor(random_state=33,n_jobs=6)
-            cv = KFold(n_splits=5, shuffle=True, random_state=33)
-            scoring = 'neg_mean_squared_error'
+    # --- Model Training and Tuning ---
+    X_train_final, X_holdout_final, y_train_final, y_holdout_final = train_test_split(
+        train_X_prepared, train_y, test_size=0.2, random_state=42,
+        stratify=train_y if problem_type == 'classification' else None
+    )
+    
+    # Model Initialization
+    if problem_type == 'classification':
+        scoring = 'roc_auc'
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        models = {
+            'catboost': CatBoostClassifier(loss_function='Logloss', eval_metric='AUC', random_seed=42, verbose=10),
+            'lgbm': LGBMClassifier(random_state=33, n_jobs=6),
+            'xgb': XGBClassifier(random_state=33, n_jobs=6),
+            'rf': RandomForestClassifier(random_state=33, n_jobs=6)
+        }
+        model = models[algorithm]
+    else:  # regression
+        scoring = 'neg_mean_squared_error'
+        cv = KFold(n_splits=5, shuffle=True, random_state=42)
+        models = {
+            'catboost': CatBoostRegressor(loss_function='RMSE', eval_metric='RMSE', random_seed=42, verbose=10),
+            'lgbm': LGBMRegressor(random_state=33, n_jobs=6),
+            'xgb': XGBRegressor(random_state=33, n_jobs=6),
+            'rf': RandomForestRegressor(random_state=33, n_jobs=6)
+        }
+        model = models[algorithm]
+        
+    param_grid = get_params(algorithm, '', problem_type)
 
-        feature_selector = SelectFromModel(estimator=feature_selector_estimator, threshold='median')
-        param_grid = get_params(algorithm, classifier_model_pipeline_key, problem_type)
+    search = RandomizedSearchCV(
+        estimator=model,
+        param_distributions=param_grid,
+        scoring=scoring,
+        n_iter=30 if algorithm == 'catboost' else 50,
+        cv=cv,
+        verbose=2,
+        random_state=42,
+        n_jobs=-1
+    )
 
-        pipe = Pipeline([
-            ('feature_selection', feature_selector),
-            (classifier_model_pipeline_key, final_model)
-        ])
+    fit_params = {}
+    eval_set = (X_holdout_final, y_holdout_final)
 
-        search = RandomizedSearchCV(
-            estimator=pipe,
-            param_distributions=param_grid,
-            scoring=scoring,
-            n_iter=50,
-            cv=cv,
-            verbose=1,
-            random_state=33,
-            n_jobs=-1
-        )
-        search.fit(train_X, train_y)
+    if algorithm == 'catboost':
+        selected_categorical_features = [f for f in selected_features if f in categorical_features]
+        fit_params['cat_features'] = selected_categorical_features
+        fit_params['early_stopping_rounds'] = 100
+        fit_params['eval_set'] = eval_set
+    elif algorithm in ['lgbm', 'xgb']:
+        if algorithm == 'lgbm':
+            import lightgbm as lgbm
+            fit_params['callbacks'] = [lgbm.early_stopping(100, verbose=False)]
+        elif algorithm == 'xgb':
+            fit_params['early_stopping_rounds'] = 100
+            fit_params['eval_metric'] = 'auc' if problem_type == 'classification' else 'rmse'
+        fit_params['eval_set'] = eval_set
+            
+    search.fit(X_train_final, y_train_final, **fit_params)
     
     best_model = search.best_estimator_
     
+    # After search, refit on the full prepared training data
     if algorithm == 'catboost':
-        best_model.fit(train_X,train_y,cat_features = categorical_features_indices, eval_set = (test_X,test_y))
+        best_model.fit(train_X_prepared, train_y, cat_features=fit_params.get('cat_features'))
     else:
-        best_model.fit(train_X,train_y)
+        best_model.fit(train_X_prepared, train_y)
 
+    # Use prepared data for evaluations
+    train_X = train_X_prepared
+    test_X = test_X_prepared
+    
     # plot feature importance:
     if algorithm != 'catboost':
-        importances = best_model.named_steps[classifier_model_pipeline_key].feature_importances_
-        mask = best_model.named_steps['feature_selection'].get_support()
-        selected_features = train_X.columns[mask]
-        feat_imp_df = pd.DataFrame({
-            'feature_names': selected_features,
-            'feature_importance': importances
-        }).sort_values(by='feature_importance', ascending=False)
+        importances = best_model.feature_importances_
     else:
         importances = best_model.get_feature_importance()
-        feature_names = train_X.columns
-        feat_imp_df = pd.DataFrame({
-            'feature_names': feature_names,
-            'feature_importance': importances
-        }).sort_values(by='feature_importance', ascending=True)
+    
+    feat_imp_df = pd.DataFrame({
+        'feature_names': selected_features,
+        'feature_importance': importances
+    }).sort_values(by='feature_importance', ascending=True)
+
     print("Feature Importance")
     fig = plot_feature_importance(feat_imp_df)
     fig.show()
@@ -313,149 +335,153 @@ def run_model_with_fs_tune(train_X,test_X,train_y,test_y,dat_dict,algorithm,outp
     if problem_type == 'classification':
         # Training Metrics
         train_pred = best_model.predict(train_X)
-        train_pred_proba = best_model.predict_proba(train_X)[:,1]
+        train_pred_proba = best_model.predict_proba(train_X)[:, 1]
         print("Training Metrics: \n")
-        discrete_evaluations(train_y,train_pred,train_pred_proba,'train',classification_type="binomial",model_path=output_path)
+        discrete_evaluations(train_y, train_pred, train_pred_proba, 'train', classification_type="binomial", model_path=output_path)
 
         # Test Metrics
         pred = best_model.predict(test_X)
-        pred_proba = best_model.predict_proba(test_X)[:,1]
+        pred_proba = best_model.predict_proba(test_X)[:, 1]
         print(pred_proba)
 
-        print(f"shape check: ",test_y[1:5],pred[1:5],pred_proba[1:5])
-        discrete_evaluations(test_y,pred,pred_proba,'test',classification_type="binomial",model_path= output_path)
+        print(f"shape check: ", test_y[1:5], pred[1:5], pred_proba[1:5])
+        discrete_evaluations(test_y, pred, pred_proba, 'test', classification_type="binomial", model_path=output_path)
 
-        thres_new = tune_prob_threshold(test_y,pred_proba)
-        pred_new = np.where(pred_proba > thres_new['tpr_fpr'] - 0.03,1,0) # Less strict 
+        thres_new = tune_prob_threshold(test_y, pred_proba)
+        pred_new = np.where(pred_proba > thres_new['tpr_fpr'] , 1, 0)  # Less strict
 
         thres_df = pd.DataFrame(list(thres_new.items()), columns=['threshold', 'value'])
-        pd.DataFrame(thres_df).to_csv(output_path+"/thresholds.csv",index = False)
+        pd.DataFrame(thres_df).to_csv(output_path + "/thresholds.csv", index=False)
 
-        print(f"shape check: ",test_y[1:5],pred_new[1:5],pred_proba[1:5])
+        print(f"shape check: ", test_y[1:5], pred_new[1:5], pred_proba[1:5])
         print("\n Evaluations after probability threshold tuning: ")
-        discrete_evaluations(test_y,pred_new,pred_proba,'test_parameter_tuned',classification_type="binomial",model_path=output_path)
-    else: # regression
-        # Placeholder for regression evaluation. 
-        # You will need to implement a `continuous_evaluations` function in `validations.py`
+        discrete_evaluations(test_y, pred_new, pred_proba, 'test_parameter_tuned', classification_type="binomial", model_path=output_path)
+    else:  # regression
         train_pred = best_model.predict(train_X)
         print("Training Metrics (Regression): \n")
-        # continuous_evaluations(train_y, train_pred, 'train', model_path=output_path)
+        continuous_evaluations(train_y, train_pred, 'train')
 
         pred = best_model.predict(test_X)
         print("Test Metrics (Regression): \n")
-        # continuous_evaluations(test_y, pred, 'test', model_path=output_path)
+        continuous_evaluations(test_y, pred, 'test')
 
-    dat_dict.to_csv(output_path+'/dat_dict.csv')
-    joblib.dump(best_model, output_path+ '/' + algorithm +'.pkl')
+    dat_dict.to_csv(output_path + '/dat_dict.csv')
+    joblib.dump(best_model, output_path + '/' + algorithm + '.pkl')
+    
+    # Save the selected features
+    joblib.dump(selected_features, output_path + '/selected_features.pkl')
 
     return best_model
 
 
-def predict_final(model_path, test):
+def predict_final(model_path, test, id_col='fixture_id'):
+    """
+    Makes predictions using a trained model, handling both classification and regression.
+    """
     #Make Copy of test
     test = test.copy()
 
-    dat_dict = pd.read_csv(model_path+'/dat_dict.csv')
-    dat_dict.drop(columns =['Unnamed: 0'],inplace =True)
-    dat_dict
-    
     # Load model
     model_file = glob.glob(model_path + '/*.pkl')
     if not model_file:
         raise FileNotFoundError("No model .pkl file found in given path.")
     model = joblib.load(model_file[0])
 
+    # Determine if the model is a regressor right after loading
+    is_regressor = "Regressor" in str(model)
     
-    # Check Encodings
-    if 'catboost' in model_path or 'logistic' in model_path:
-        print("No encodings used.")
+    # Load selected features
+    selected_features_path = os.path.join(model_path, 'selected_features.pkl')
+    if not os.path.exists(selected_features_path):
+        raise FileNotFoundError("selected_features.pkl not found in model path. The model might be from an older version.")
+    selected_features = joblib.load(selected_features_path)
+
+    dat_dict = pd.read_csv(os.path.join(model_path, 'dat_dict.csv'))
+    categorical_features = dat_dict[(dat_dict['type'] == 'categorical') & (dat_dict['modeling_feature'] == 1)]['feature'].values
+
+    # Determine algorithm from model file name
+    model_filename = os.path.basename(model_file[0])
+    is_catboost = 'catboost' in model_filename
+
+    # Preprocess test data
+    if is_catboost:
+        print("Applying CatBoost preprocessing")
+        for col in categorical_features:
+            if col in test.columns:
+                test[col] = test[col].replace(pd.NA, 'NaN_string').fillna('NaN_string').astype(str)
     else:
-        print("Loading encodings...")
+        print("Loading and applying ordinal encodings...")
         encoding_path = Path(model_path) / "encodings"
-        encoding_files = list(encoding_path.glob('*.pkl'))
+        encoding_files = list(encoding_path.glob('*_categorical_encodings.pkl'))
         if not encoding_files:
             print("No encoding files found. Skipping encoding.")
         else:
             for file in encoding_files:
-                parts = file.name.split("_cat")
-                if len(parts) < 2:
-                    print(f"Skipping malformed encoding file: {file.name}")
-                    continue
-                col = parts[0]
+                col = file.name.replace('_categorical_encodings.pkl', '')
                 if col in test.columns:
                     print(f"Encoding column: {col}")
-                    encoder = joblib.load(file)
-                    test[col] = test[col].astype(str)
-                    test[col] = encoder.transform(test[[col]])
-                else:
-                    print(f"Column '{col}' not found in test set. Skipping.")
+                    try:
+                        encoder = joblib.load(file)
+                        # Handle new unseen values in test data during transform
+                        test[col] = test[col].astype(str) # Ensure consistent type before transform
+                        test[col] = test[col].map(lambda s: '<unknown>' if s not in encoder.classes_ else s)
+                        le_classes = encoder.classes_.tolist()
+                        bisect.insort_left(le_classes, '<unknown>')
+                        encoder.classes_ = np.array(le_classes)
+                        test[col] = encoder.transform(test[[col]])
 
-    # Process data accordingly
-    if 'catboost' not in model_path:
-        print("Applying pipeline preprocessing")
-        selector = model.named_steps['feature_selection']
-        feature_names_before_selection = selector.feature_names_in_
-        selected_mask = selector.get_support()
-        selected_features = feature_names_before_selection[selected_mask]
+                    except Exception as e:
+                        print(f"Could not apply encoding for column {col}: {e}")
 
-        # Ensure all expected columns are present in test
-        for col in feature_names_before_selection:
-            if col not in test.columns:
-                print(f"Adding missing column: {col}")
-                test[col] = 0
+    # Ensure all selected features are present in the test set
+    for col in selected_features:
+        if col not in test.columns:
+            print(f"Adding missing selected feature column: {col}")
+            test[col] = 0 # or some other default value like np.nan and then fill
 
-        # Reorder test columns to match training
-        X_new = test[feature_names_before_selection]
-        #X_new = test[selected_features] # if model takes only selected features as input
-
-    else:
-        print("Applying CatBoost preprocessing")
-        categorical_features = dat_dict[
-            (dat_dict['type'] == 'categorical') &
-            (dat_dict['modeling_feature'] == 1)
-        ]['feature'].values
-
-        for col in categorical_features:
-            if col in test.columns:
-                test[col] = test[col].replace(pd.NA, 'NaN_string').fillna('NaN_string').astype(str)
-            else:
-                print(f"Adding missing categorical column: {col}")
-                test[col] = 'NaN_string'
-
-        X_new = test[model.feature_names_]
+    # Select features and ensure correct order
+    X_new = test[selected_features]
 
     print("Input columns used for prediction:")
     print(X_new.columns.tolist())
-
     print("Generating predictions")
 
-    print(X_new)
-    pred_proba = model.predict_proba(X_new)[:, 1]
+    # Handle single string or list of strings for id_col
+    id_cols = [id_col] if isinstance(id_col, str) else id_col
+    final_pred = test[id_cols].copy()
 
-    # Load threshold from file
-    threshold_file = Path(model_path) / "thresholds.csv"
-    if threshold_file.exists():
-        thres_df = pd.read_csv(threshold_file)
-        threshold_row = thres_df[thres_df['threshold'] == 'tpr_fpr']
-        if not threshold_row.empty:
-            threshold_value = float(threshold_row['value'].values[0])
-        else:
-            print("Threshold 'tpr_fpr' not found, defaulting to 0.5.")
-            threshold_value = 0.5
+
+    if is_regressor:
+        # Regression Logic
+        preds = model.predict(X_new)
+        final_pred['prediction'] = preds
+        print("Prediction values statistics:")
+        print(final_pred['prediction'].describe())
     else:
-        print("Thresholds.csv not found. Defaulting to 0.5.")
-        threshold_value = 0.5
+        # Classification Logic
+        pred_proba = model.predict_proba(X_new)[:, 1]
 
-    preds = np.where(pred_proba >= threshold_value - 0.02, 1, 0)
+        # Load threshold from file
+        threshold_file = Path(model_path) / "thresholds.csv"
+        if threshold_file.exists():
+            thres_df = pd.read_csv(threshold_file)
+            threshold_row = thres_df[thres_df['threshold'] == 'tpr_fpr']
+            if not threshold_row.empty:
+                threshold_value = float(threshold_row['value'].values[0])
+            else:
+                print("Threshold 'tpr_fpr' not found, defaulting to 0.5.")
+                threshold_value = 0.5
+        else:
+            print("Thresholds.csv not found. Defaulting to 0.5.")
+            threshold_value = 0.5
 
-    # Final Data
-    final_pred = pd.DataFrame({
-        'class': preds,
-        'pred_probability': pred_proba
-    })
+        preds = np.where(pred_proba >= threshold_value - 0.02, 1, 0)
 
-    print("Prediction Class Distribution")
-    print(final_pred['class'].value_counts(normalize = True))
+        final_pred['class'] = preds
+        final_pred['pred_probability'] = pred_proba
+        
+        print("Prediction Class Distribution")
+        print(final_pred['class'].value_counts(normalize=True))
 
     return final_pred
 
@@ -464,10 +490,12 @@ def outcome_prediction():
     pass
 
 
-def check_elbow(n_clusters,dat):
-    km = KMeans(n_clusters,random_state=33)
+def check_elbow(n_clusters, dat):
+    # n_init is set to 10 to avoid a FutureWarning and match old behavior.
+    # The final KMeans fit uses n_init='auto'.
+    km = KMeans(n_clusters=n_clusters, random_state=33, n_init=10)
     km.fit(dat)
-    return km
+    return km.inertia_
 
 
 def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path = None):
@@ -499,8 +527,8 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
             for future in as_completed(futures):
                 k_val = futures[future]
                 try:
-                    kmeans_val = future.result()
-                    results[k_val] = kmeans_val.inertia_
+                    inertia = future.result()
+                    results[k_val] = inertia
                 except Exception as e:
                     print(f"Error checking elbow for k={k_val}: {e}")
 
@@ -538,9 +566,9 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
     dat.loc[dat_for_clustering.index, f"{cluster_colname}"] = labels
 
     if 'win' in dat.columns:
-        cluster_win = dat.groupby(['cluster'],as_index = False).agg(games = ('cluster','size'),win_perc = ('win','mean')).sort_values('win_perc', ascending = False)
-        cluster_win['cluster_rank'] = cluster_win['win_perc'].rank(ascending = False).astype('int')
-        dat = dat.merge(cluster_win,how = 'left',on = 'cluster')
+        cluster_win = dat.groupby([cluster_colname],as_index = False).agg(games = (cluster_colname,'size'), win_perc  = ('win','mean')).rename(columns = {'win_perc':'win_perc_'+cluster_colname, 'games':'games_'+cluster_colname}).sort_values('win_perc_'+cluster_colname, ascending = False)
+        cluster_win[cluster_colname + '_rank'] = cluster_win['win_perc_'+cluster_colname].rank(ascending = False).astype('int')
+        dat = dat.merge(cluster_win,how = 'left',on = cluster_colname)
 
     # --- Save the model and the feature list ---
     joblib.dump(final_kmeans, os.path.join(kmeans_dir, "kmeans_model.pkl"))
@@ -550,8 +578,14 @@ def fit_kmeans(dat,target:list,k = None,cluster_colname = 'cluster',model_path =
     col_names = dat_for_clustering.columns
     df_centers = pd.DataFrame(centers, columns=col_names)
     
+    if 'win' in dat.columns and 'cluster_win' in locals():
+        cluster_win_indexed = cluster_win.set_index(cluster_colname)
+        df_centers['win_rate'] = cluster_win_indexed['win_perc_'+cluster_colname]
+        df_centers['cluster_rank'] = cluster_win_indexed[cluster_colname+'_rank']
+
+    df_centers['cluster'] = df_centers.index # Add cluster ID as a column
     # --- Save cluster centers at the root of the model path ---
-    df_centers.to_csv(os.path.join(model_path, "kmeanscluster_centers.csv"), index=False)
+    df_centers.to_csv(os.path.join(kmeans_dir, "kmeanscluster_centers.csv"), index=False)
 
 
     from sklearn.decomposition import PCA
@@ -606,10 +640,31 @@ def predict_kmeans(dat,model_path):
         labels = kmeans_model.predict(kmeans_dat)
         dat['cluster'] = labels
 
-        cluster_win = dat.groupby('cluster')['win'].mean().reset_index(name='win_perc')
-        cluster_win['cluster_rank'] = cluster_win['win_perc'].rank(ascending=False).astype(int)
-        
-        dat = dat.merge(cluster_win[['cluster', 'cluster_rank']], on='cluster')    
+        # Load pre-calculated training cluster ranks from kmeanscluster_centers.csv
+        kmeans_centers_path = os.path.join(model_path, "kmeans", "kmeanscluster_centers.csv")
+        if os.path.exists(kmeans_centers_path):
+            kmeans_centers_df = pd.read_csv(kmeans_centers_path)
+            # Ensure 'cluster' and 'cluster_rank' columns exist
+            if 'cluster' in kmeans_centers_df.columns and 'cluster_rank' in kmeans_centers_df.columns:
+                # Rename for clarity
+                kmeans_centers_df.rename(columns={'cluster_rank': 'training_cluster_rank'}, inplace=True)
+                # Merge the training cluster rank with the input dataframe
+                dat = dat.merge(kmeans_centers_df[['cluster', 'training_cluster_rank']], on='cluster', how='left')
+            else:
+                print(f"Warning: 'cluster' or 'cluster_rank' column not found in {kmeans_centers_path}. Skipping merge of training cluster ranks.")
+        else:
+            print(f"Warning: {kmeans_centers_path} not found. Skipping merge of training cluster ranks.")
+            
+        # Calculate and merge prediction ranks
+        if 'win' in dat.columns:
+            cluster_win_pred = dat.groupby('cluster')['win'].mean().reset_index(name='win_perc_pred')
+            cluster_win_pred['prediction_cluster_rank'] = cluster_win_pred['win_perc_pred'].rank(ascending=False).astype(int)
+            dat = dat.merge(cluster_win_pred[['cluster', 'prediction_cluster_rank']], on='cluster', how='left')
+        else:
+            print("Warning: 'win' column not found in prediction data. Cannot calculate prediction cluster rank.")
+            
+    else:
+        print("model path does not exist")
         
     return dat
 

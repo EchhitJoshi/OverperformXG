@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
+import plotly.io as pio
+from plotnine import *
 from sklearn.metrics import ConfusionMatrixDisplay
 from scipy.stats import gaussian_kde
 
@@ -25,11 +27,52 @@ plt.rcParams.update({
     'grid.color': 'gray'
 })
 
-#Themes and options
-px.defaults.template = 'plotly_dark'
+##### Themes and options #####
+pio.templates.default = "plotly_dark"
 pd.options.display.max_columns = 200
 sns.set_style("ticks")
 plt.style.use("dark_background")
+
+
+
+dark_theme = (
+    theme_dark()
+    + theme(
+    panel_background=element_rect(fill='#1e1e1e'),
+    panel_grid_major=element_line(color='#ffffff'),
+    axis_line=element_line(color='#ffffff')
+    )
+)
+
+dark_maximal = (
+    theme_dark()
+    + theme(
+          # backgrounds
+        panel_background=element_rect(fill='#1e1e1e'),
+        plot_background=element_rect(fill='#1e1e1e'),
+
+        # grid lines
+        panel_grid_major=element_line(color='#ffffff', size=0.6),
+        panel_grid_minor=element_line(color='#ffffff', size=0.3),
+
+        # axes
+        axis_line=element_line(color='#ffffff'),
+        axis_ticks=element_line(color='#ffffff'),
+        axis_text=element_text(color='#ffffff'),
+        axis_title=element_text(color='#ffffff'),
+
+        # facet strips
+        strip_background=element_rect(fill='#2a2a2a'),
+        strip_text=element_text(color='#ffffff', weight='bold'),
+
+        # legends
+        legend_background=element_rect(fill='#1e1e1e'),
+        legend_text=element_text(color='#ffffff'),
+        legend_title=element_text(color='#ffffff')
+    )
+)
+#### Theme End ####
+
 
 """
 General functions for plots and facets
@@ -108,28 +151,34 @@ def plot_player_stats_bar_chart(df, players, categories, category_labels=None):
 def plot_confusion_matrix(cm):
     fig = ff.create_annotated_heatmap(cm, x=['Predicted 0', 'Predicted 1'], y=['Actual 0', 'Actual 1'])
     fig.update_layout(title_text='Confusion Matrix')
-    fig.show()
-    #return fig
+    #fig.show()
+    return fig
 
 def plot_roc(fpr,tpr,threshold_roc,roc_score):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=fpr, y=tpr, mode='lines', name=f'ROC curve (area = {roc_score:.2f})'))
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Chance', line=dict(dash='dash')))
     fig.update_layout(title_text='Receiver Operating Characteristic (ROC) Curve')
-    fig.show()
-    #return fig
+    #fig.show()
+    return fig
 
 def plot_precision_recall(recall_curve,precision_curve,pr_auc_score):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=recall_curve, y=precision_curve, mode='lines', name=f'Precision-Recall curve (area = {pr_auc_score:.2f})'))
     fig.update_layout(title_text='Precision-Recall Curve')
     fig.show()
+    return fig
 
 def plot_feature_importance(top_25_features):
     num_features = len(top_25_features)
     # Calculate height dynamically, e.g., 25 pixels per feature, with a minimum height
-    plot_height = max(400, num_features * 25) # Minimum 400px, then 25px per feature
+    plot_height = max(600, num_features * 25) # Minimum 400px, then 25px per feature
     fig = px.bar(top_25_features, x='feature_importance', y='feature_names', orientation='h', title='Top 25 Feature Importances', height=plot_height)
+    
+    # Add more margin to the left to make space for feature names
+    fig.update_layout(
+        bargap = 0.5
+    )
     return fig
 
 def plot_prediction_density(outcomes_df):

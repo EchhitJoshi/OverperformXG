@@ -97,19 +97,32 @@ def read_fixtures_for_season(team,season,sleep_time = 2):
     fixtures = get_team_fixtures(team,season)
     
     
+    read_fixtures = pd.read_sql("select fixture_id, team from overperformxg.complete_data",config['MYSQL_STRING'])
     
-    home_fixtures = list(fixtures[fixtures.teams_home_name == team]['fixture_id'])
-    away_fixtures = list(fixtures[fixtures.teams_away_name == team]['fixture_id'])
+    # Only process fixtures for teams that are not present in the saved data in db
+    existing_fixtures_for_team = read_fixtures[read_fixtures['team'] == team]['fixture_id'].tolist()
+    
+    fixtures_to_process = fixtures[~fixtures['fixture_id'].isin(existing_fixtures_for_team)]
+
+    if fixtures_to_process.empty:
+        print(f"No new fixtures to process for {team} in season {season}.")
+        return pd.DataFrame()
+
+    home_fixtures = list(fixtures_to_process[fixtures_to_process.teams_home_name == team]['fixture_id'])
+    away_fixtures = list(fixtures_to_process[fixtures_to_process.teams_away_name == team]['fixture_id'])
 
     fixtures_dat = pd.DataFrame()
 
     for fixture in home_fixtures + away_fixtures:
         player_stat_url = "https://v3.football.api-sports.io/fixtures/players?fixture={}".format(fixture)
-        fixture_dat = requests.get(player_stat_url,headers=headers_api_sport)
+        fixture_dat_response = requests.get(player_stat_url,headers=headers_api_sport)
         time.sleep(sleep_time)
         if fixture in home_fixtures:
             #process for home
-            fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            try:
+                fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat_response.json()['response'])['players'][0])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat_response.json()['response'])['players'][0])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            except:
+                continue
             fixture_dat_expanded['fixture_id'] = fixture
             fixture_dat_expanded['team_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] 
             fixture_dat_expanded['team_non_penalty_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_home'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_home'].fillna(0).values[0]
@@ -121,7 +134,10 @@ def read_fixtures_for_season(team,season,sleep_time = 2):
             
         else:
             #process for away
-            fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat.json()['response'])['players'][1])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            try:
+                fixture_dat_expanded = pd.concat([pd.json_normalize(pd.json_normalize(fixture_dat_response.json()['response'])['players'][1])[['player.id','player.name']],pd.json_normalize(pd.json_normalize(pd.json_normalize(pd.json_normalize(fixture_dat_response.json()['response'])['players'][1])['statistics']).rename(columns = {0:"player_stats"})['player_stats'])],axis = 1)
+            except:
+                continue
             fixture_dat_expanded['fixture_id'] = fixture
             fixture_dat_expanded['team_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] 
             fixture_dat_expanded['team_non_penalty_goals_scored'] = fixtures[(fixtures.fixture_id == fixture)]['goals_away'].values[0] - fixtures[(fixtures.fixture_id == fixture)]['score_penalty_away'].fillna(0).values[0]
@@ -138,7 +154,9 @@ def read_fixtures_for_season(team,season,sleep_time = 2):
         fixtures_dat = pd.concat([fixtures_dat,fixture_dat_expanded],axis = 0)
         fixtures_dat['team'] = team
         
-        
+    if fixtures_dat.empty:
+        print(f"No new fixture data to save for {team}, {season}")
+        return fixtures_dat
     
     fixtures_dat = lower_columns(fixtures_dat)
 
@@ -151,9 +169,19 @@ def read_fixtures_for_season(team,season,sleep_time = 2):
     fixtures_dat['duels_won_perc'] = (fixtures_dat.duels_won.astype("float64")/fixtures_dat.duels_total.astype("float64")) * 100
     fixtures_dat['pass_accuracy_perc'] = (fixtures_dat.passes_accuracy.astype("float64")/ fixtures_dat.passes_total.astype("float64")) * 100
 
-    fixtures_dat.to_parquet(home_dir+f"/data/Fixtures/{team.replace(' ','_')}_{str(season)}.parquet")
+    output_path = home_dir + f"/data/Fixtures/{team.replace(' ', '_')}_{str(season)}.parquet"
+
+    if os.path.exists(output_path):
+        print(f"Appending data to existing file: {output_path}")
+        existing_df = pd.read_parquet(output_path)
+        combined_df = pd.concat([existing_df, fixtures_dat], ignore_index=True)
+        combined_df.to_parquet(output_path)
+    else:
+        print(f"Creating new file: {output_path}")
+        fixtures_dat.to_parquet(output_path)
 
     return fixtures_dat
+
 
 
 
@@ -363,11 +391,10 @@ def compare_players(dat,players:list,seasons:list,transpose:str):
 def calculate_fixture_stats(dat,group_cols = []):
     aggregations = {
         'offsides': [ 'mean'],
-        'games_minutes': [ 'mean'],
+        'games_minutes': [ 'median'],
         'games_number': ['mean'],
         'games_rating': ['mean'],
-        'games_captain': [ 'mean'],
-        'games_substitute': [ 'mean'],
+        'games_substitute': [ 'sum'],
         'shots_total': ['sum'],
         'shots_on': ['sum'],
         'goals_total': ['sum'],
@@ -428,20 +455,6 @@ def calculate_fixture_stats(dat,group_cols = []):
     # Merge the team-wide stats back with the position-based aggregated stats
     merged_data = aggregated.merge(team_data, on=['fixture_id', 'team'], how='left')
 
-    # Pivot the data to have one row per fixture_id + team and columns as aggregated stats per games_position
-    # result = merged_data.pivot_table(
-    #     index=['fixture_id', 'team'],  # Group by fixture_id and team
-    #     columns='games_position',     # Separate columns by games_position
-    #     values=[col for col in merged_data.columns if col not in ['fixture_id', 'team', 'games_position']],
-    #     aggfunc='first'               # Only one value per attribute for each position
-    # )
-
-    # # Flatten the resulting pivot table's columns
-    # result.columns = ['_'.join([str(c) for c in col]).strip() for col in result.columns]
-
-    # Reset index to have fixture_id and team as columns
-    #result = result.reset_index()
-
     # Final wrangling
     merged_data = merged_data.fillna(0)
     merged_data.columns = [re.sub(r"(_sum|_mean|_unique)$","",col) for col in merged_data.columns]    
@@ -460,8 +473,43 @@ def calculate_fixture_stats(dat,group_cols = []):
         for result in ['win','draw','loss']:
             merged_data[f'l{window}_{result}'] = merged_data.groupby(['team']+group_cols)[result].transform(lambda s: s.rolling(window, min_periods = 1).sum().shift(1))
 
-    return merged_data[merged_data.week_e.notna()]
+    # Merge opponent stats
+    opponent_data = merged_data.copy()
+    
+    final_data = pd.merge(
+        merged_data, 
+        opponent_data, 
+        left_on=['fixture_id', 'opponent'] + group_cols, 
+        right_on=['fixture_id', 'team'] + group_cols,
+        suffixes=('', '_opp')
+    )
 
-    # --- End of generated code block ---
+    # Drop redundant opponent team/opponent columns
+    cols_to_drop = []
+    if 'team_opp' in final_data.columns:
+        cols_to_drop.append('team_opp')
+    if 'opponent_opp' in final_data.columns:
+        cols_to_drop.append('opponent_opp')
+    if cols_to_drop:
+        final_data = final_data.drop(columns=cols_to_drop)
+
+    # Calculate deviations
+    for col in final_data.columns:
+        if col + '_opp' in final_data.columns:
+            if pd.api.types.is_numeric_dtype(final_data[col]) and pd.api.types.is_numeric_dtype(final_data[col + '_opp']):
+                final_data[col + '_dev'] = final_data[col] - final_data[col + '_opp']
+    
+    return final_data[final_data.week_e.notna()]
 
     
+
+
+# Time wise train test
+    
+def split_by_team(dat,split_prop):
+    min_max_times = dat.groupby('team',as_index = False).agg(min_time = ('fixture_date','min'),
+                                                            max_time = ('fixture_date','max'))
+    min_max_times['split_date'] = (min_max_times.min_time + (min_max_times.max_time - min_max_times.min_time) * split_prop ).dt.strftime("%Y-%m-%d")
+    dat = dat.merge(min_max_times, on = 'team', how = 'left')
+    dat['split'] = np.where(dat.fixture_date < dat.split_date,'train','test') 
+    return dat

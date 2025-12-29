@@ -27,7 +27,7 @@ def continuous_evaluations(actual,pred,type = "test"):
     pred: predicted target
     Check usual continuous target evaluations
     """
-    print(f"R-squared(explained variance from the model compared against an average moded): {r2_score(actual,pred)}")
+    print(f"R-squared(explained variance from the model compared against an average model): {r2_score(actual,pred)}")
     if r2_score(actual,pred) < 0:
         print("Please check model fit")
 
@@ -108,13 +108,14 @@ def discrete_evaluations(actual,pred,pred_proba=None,type = "test",classificatio
 
         print(outcomes_df.head())
         print("Plotting Confusion Matrix")
-        plot_confusion_matrix(cm)
+        cm_p = plot_confusion_matrix(cm)
+        cm_p.show()
 
         # ROC Curve
         fpr, tpr, thresholds_roc = roc_curve(actual, pred_proba)
         print("Plotting ROC curve")
-        plot_roc(fpr,tpr,thresholds_roc,roc_score)
-
+        roc_p = plot_roc(fpr,tpr,thresholds_roc,roc_score)
+        roc_p.show()
 
         # Precision Recall Curve
         precision_curve, recall_curve, thresholds_pr = precision_recall_curve(actual, pred_proba)
